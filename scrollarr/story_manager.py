@@ -113,7 +113,9 @@ class StoryManager:
                 else:
                     # New source found! Add to DB.
                     logger.info(f"New source discovered: {provider_instance.name} ({key})")
-                    is_enabled_default = getattr(provider_instance, 'is_enabled_by_default', True)
+
+                    # Force disabled by default for new installs
+                    is_enabled_default = False
 
                     new_source = Source(
                         name=provider_instance.name,

@@ -52,13 +52,17 @@ async def auth_middleware(request: Request, call_next):
 
     # Check setup_complete
     setup_complete = config_manager.get("setup_complete", False)
+    auth_method = config_manager.get("auth_method", "None")
+
     if not setup_complete:
-        if path.startswith("/api"):
-             return JSONResponse(status_code=401, content={"detail": "Setup required"})
-        return RedirectResponse(url="/setup", status_code=302)
+        # Allow access if NotDecided, so users can see the popup
+        if auth_method != "NotDecided":
+            if path.startswith("/api"):
+                 return JSONResponse(status_code=401, content={"detail": "Setup required"})
+            return RedirectResponse(url="/setup", status_code=302)
 
     # Auth Checks
-    auth_method = config_manager.get("auth_method", "None")
+    # auth_method already fetched above
 
     # 1. API Key (Header or Query)
     api_key = request.headers.get("X-Api-Key") or request.query_params.get("apikey")
@@ -78,8 +82,8 @@ async def auth_middleware(request: Request, call_next):
     if "user" in request.session:
          return await call_next(request)
 
-    # 4. Auth Method "None"
-    if auth_method == "None":
+    # 4. Auth Method "None" or "NotDecided"
+    if auth_method == "None" or auth_method == "NotDecided":
         return await call_next(request)
 
     # 5. Basic Auth
@@ -359,12 +363,21 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
         story.failed_chapters = failed
         stories_with_progress.append(story)
 
-    return templates.TemplateResponse("index.html", {"request": request, "stories": stories_with_progress})
+    sources_enabled_count = db.query(Source).filter(Source.is_enabled == True).count()
+    auth_method = config_manager.get("auth_method", "None")
+
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "stories": stories_with_progress,
+        "sources_enabled_count": sources_enabled_count,
+        "auth_method": auth_method
+    })
 
 @app.get("/add", response_class=HTMLResponse)
-async def add_new_page(request: Request):
+async def add_new_page(request: Request, db: Session = Depends(get_db)):
     """Render the add new story page."""
-    return templates.TemplateResponse("add_new.html", {"request": request})
+    sources_enabled_count = db.query(Source).filter(Source.is_enabled == True).count()
+    return templates.TemplateResponse("add_new.html", {"request": request, "sources_enabled_count": sources_enabled_count})
 
 @app.get("/activity", response_class=HTMLResponse)
 async def activity_page(request: Request):

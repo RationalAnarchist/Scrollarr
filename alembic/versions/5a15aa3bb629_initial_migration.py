@@ -36,8 +36,8 @@ def upgrade() -> None:
         sa.UniqueConstraint('name')
         )
         # Insert default sources
-        op.execute("INSERT INTO sources (name, key, is_enabled) VALUES ('Royal Road', 'royalroad', 1)")
-        op.execute("INSERT INTO sources (name, key, is_enabled) VALUES ('Archive of Our Own', 'ao3', 1)")
+        op.execute("INSERT INTO sources (name, key, is_enabled) VALUES ('Royal Road', 'royalroad', 0)")
+        op.execute("INSERT INTO sources (name, key, is_enabled) VALUES ('Archive of Our Own', 'ao3', 0)")
 
     if 'stories' not in tables:
         op.create_table('stories',

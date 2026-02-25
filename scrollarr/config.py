@@ -19,7 +19,7 @@ class ConfigManager:
         "update_interval_hours": 1,
         "worker_sleep_min": 30.0,
         "worker_sleep_max": 60.0,
-        "database_url": "sqlite:///library.db",
+        "database_url": "sqlite:///config/library.db",
         "log_level": "INFO",
         "library_path": "library",
         "story_folder_format": "{Title} ({Id})",

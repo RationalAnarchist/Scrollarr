@@ -1,0 +1,1414 @@
+import logging
+import os
+import psutil
+import shutil
+import time
+from pathlib import Path
+from typing import Optional, List, Dict
+
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, UploadFile, File, Form
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from pydantic import BaseModel
+
+from .database import SessionLocal, Story, Chapter, Source, DownloadHistory, EbookProfile, NotificationSettings
+from .story_manager import StoryManager
+from .library_manager import LibraryManager
+from .import_manager import ImportManager
+import uuid
+import secrets
+import base64
+from .ebook_builder import EbookBuilder
+from .job_manager import JobManager
+from .notifications import NotificationManager
+from .config import config_manager
+from .logger import setup_logging
+from .auth import is_local_ip, verify_api_key, verify_password, get_password_hash
+
+# Configure logging
+setup_logging(log_level=config_manager.get('log_level'), log_file='logs/scrollarr.log')
+logger = logging.getLogger(__name__)
+
+START_TIME = time.time()
+
+app = FastAPI(title="Scrollarr")
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # Static files whitelist
+    if path.startswith("/static") or path == "/favicon.ico":
+        return await call_next(request)
+
+    # Login/Setup routes whitelist
+    whitelist = ["/login", "/api/login", "/setup", "/api/setup"]
+    if path in whitelist:
+        return await call_next(request)
+
+    # Check setup_complete
+    setup_complete = config_manager.get("setup_complete", False)
+    if not setup_complete:
+        if path.startswith("/api"):
+             return JSONResponse(status_code=401, content={"detail": "Setup required"})
+        return RedirectResponse(url="/setup", status_code=302)
+
+    # Auth Checks
+    auth_method = config_manager.get("auth_method", "None")
+
+    # 1. API Key (Header or Query)
+    api_key = request.headers.get("X-Api-Key") or request.query_params.get("apikey")
+    expected_key = config_manager.get("api_key")
+
+    if api_key and verify_api_key(api_key, expected_key):
+        return await call_next(request)
+
+    # 2. Local Bypass
+    if config_manager.get("local_auth_disabled", False):
+         if request.client:
+             client_ip = request.client.host
+             if is_local_ip(client_ip):
+                 return await call_next(request)
+
+    # 3. Session Auth (for Web UI)
+    if "user" in request.session:
+         return await call_next(request)
+
+    # 4. Auth Method "None"
+    if auth_method == "None":
+        return await call_next(request)
+
+    # 5. Basic Auth
+    if auth_method == "Basic":
+        auth_header = request.headers.get("Authorization")
+        if auth_header:
+             scheme, _, param = auth_header.partition(" ")
+             if scheme.lower() == 'basic':
+                 try:
+                     decoded = base64.b64decode(param).decode("utf-8")
+                     username, _, password = decoded.partition(":")
+                     expected_username = config_manager.get("auth_username")
+                     hashed_password = config_manager.get("auth_password")
+
+                     # Safe compare username, verify password hash
+                     if username and expected_username and secrets.compare_digest(username, expected_username) and verify_password(password, hashed_password):
+                         return await call_next(request)
+                 except Exception:
+                     pass
+
+        # Challenge
+        return Response(status_code=401, headers={"WWW-Authenticate": "Basic realm=\"Scrollarr\""})
+
+    # Authentication Failed (Forms Fallback)
+    if path.startswith("/api"):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    else:
+        return RedirectResponse(url="/login", status_code=302)
+
+# Auth Routes
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/login")
+async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    auth_method = config_manager.get("auth_method")
+
+    if auth_method == "None":
+        return RedirectResponse(url="/", status_code=302)
+
+    expected_username = config_manager.get("auth_username")
+    hashed_password = config_manager.get("auth_password")
+
+    if not expected_username or not hashed_password:
+        return templates.TemplateResponse("login.html", {"request": request, "error": "Authentication not configured correctly."})
+
+    if secrets.compare_digest(username, expected_username) and verify_password(password, hashed_password):
+        request.session["user"] = username
+        return RedirectResponse(url="/", status_code=302)
+
+    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=302)
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request):
+    # If setup already complete, redirect to home (auth middleware will handle login check if needed)
+    if config_manager.get("setup_complete"):
+        return RedirectResponse(url="/", status_code=302)
+    return templates.TemplateResponse("setup.html", {"request": request})
+
+@app.post("/setup")
+async def setup(
+    request: Request,
+    auth_method: str = Form(...),
+    username: Optional[str] = Form(None),
+    password: Optional[str] = Form(None)
+):
+    if config_manager.get("setup_complete"):
+        return RedirectResponse(url="/", status_code=302)
+
+    config_manager.set("auth_method", auth_method)
+
+    if auth_method in ["Basic", "Forms"]:
+        if not username or not password:
+             return templates.TemplateResponse("setup.html", {"request": request, "error": "Username and Password required for this method."})
+        config_manager.set("auth_username", username)
+        # Debug logging
+        logger.info(f"Hashing password: {password!r} (type: {type(password)})")
+        config_manager.set("auth_password", get_password_hash(password))
+    else:
+        # Clear credentials if None selected
+        config_manager.set("auth_username", "")
+        config_manager.set("auth_password", "")
+
+    config_manager.set("setup_complete", True)
+
+    # If using Forms, log the user in immediately
+    if auth_method == "Forms" and username:
+        request.session["user"] = username
+
+    return RedirectResponse(url="/", status_code=302)
+
+# Add Session Middleware (Must be added AFTER auth_middleware to run BEFORE it in request flow)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=config_manager.get("session_secret"),
+    session_cookie="scrollarr_session",
+    max_age=86400 * 7 # 7 days
+)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Internal Server Error", "detail": str(exc)},
+    )
+
+# Mount Static Files
+app.mount("/static", StaticFiles(directory="scrollarr/static"), name="static")
+
+# Templates
+templates = Jinja2Templates(directory="scrollarr/templates")
+
+# Initialize StoryManager
+try:
+    story_manager = StoryManager()
+except Exception as e:
+    logger.error(f"Failed to initialize StoryManager: {e}")
+    story_manager = None
+
+# Initialize ImportManager
+try:
+    import_manager = ImportManager()
+except Exception as e:
+    logger.error(f"Failed to initialize ImportManager: {e}")
+    import_manager = None
+
+# Dependency for DB Session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# Models for API
+class UrlRequest(BaseModel):
+    url: str
+    profile_id: Optional[int] = None
+    provider_key: Optional[str] = None
+
+class SettingsRequest(BaseModel):
+    download_path: str
+    min_delay: float = 2.0
+    max_delay: float = 5.0
+    user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    update_interval_hours: int = 1
+    worker_sleep_min: float = 30.0
+    worker_sleep_max: float = 60.0
+    database_url: str = "sqlite:///library.db"
+    log_level: str = "INFO"
+    library_path: str = "library"
+    compiled_filename_pattern: str = "{Title} - Vol {Volume}"
+    story_folder_format: str = "{Title}"
+    chapter_file_format: str = "{Index} - {Title}"
+    volume_folder_format: str = "Volume {Volume}"
+    single_chapter_name_format: str = "{Title} - {Index} - {Chapter}"
+    chapter_group_name_format: str = "{Title} - {StartChapter} to {EndChapter}"
+    volume_name_format: str = "{Title} - {Volume} - {VolName}"
+    full_story_name_format: str = "{Title} - Full story to {EndChapter}"
+
+    # Auth
+    auth_method: str = "None"
+    auth_username: Optional[str] = None
+    auth_password: Optional[str] = None
+    local_auth_disabled: bool = False
+
+class ProfileCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    css: Optional[str] = None
+    output_format: str = 'epub'
+    pdf_page_size: str = 'A4'
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    css: Optional[str] = None
+    output_format: Optional[str] = None
+    pdf_page_size: Optional[str] = None
+
+class SetProfileRequest(BaseModel):
+    profile_id: int
+
+class ProfileResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    css: Optional[str] = None
+    output_format: str
+    pdf_page_size: Optional[str] = 'A4'
+
+    class Config:
+        from_attributes = True
+
+class NotificationResponse(BaseModel):
+    id: int
+    name: str
+    kind: str
+    target: str
+    events: str
+    attach_file: bool
+    enabled: bool
+
+    class Config:
+        from_attributes = True
+
+class NotificationCreate(BaseModel):
+    name: str
+    kind: str
+    target: str
+    events: str = ''
+    attach_file: bool = False
+    enabled: bool = True
+
+class NotificationUpdate(BaseModel):
+    name: Optional[str] = None
+    kind: Optional[str] = None
+    target: Optional[str] = None
+    events: Optional[str] = None
+    attach_file: Optional[bool] = None
+    enabled: Optional[bool] = None
+
+class SmtpSettingsRequest(BaseModel):
+    smtp_host: str
+    smtp_port: int
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from_email: Optional[str] = None
+
+class TestNotificationRequest(BaseModel):
+    target: str
+    kind: str
+
+class CustomCompileRequest(BaseModel):
+    chapter_ids: List[int]
+
+# JobManager instance
+job_manager = JobManager()
+
+@app.on_event("startup")
+async def startup_event():
+    """Start the background job manager."""
+    global job_manager
+    job_manager.start()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Shutdown the job manager."""
+    global job_manager
+    if job_manager:
+        job_manager.stop()
+
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request, db: Session = Depends(get_db)):
+    """Render the dashboard with all stories."""
+    stories = db.query(Story).order_by(Story.title).all()
+
+    stories_with_progress = []
+    for story in stories:
+        total = len(story.chapters)
+        downloaded = sum(1 for c in story.chapters if c.status == 'downloaded')
+        failed = sum(1 for c in story.chapters if c.status == 'failed')
+        progress = (downloaded / total * 100) if total > 0 else 0
+
+        # Add attributes for the template
+        story.progress = round(progress, 1)
+        story.total_chapters = total
+        story.downloaded_chapters = downloaded
+        story.failed_chapters = failed
+        stories_with_progress.append(story)
+
+    return templates.TemplateResponse("index.html", {"request": request, "stories": stories_with_progress})
+
+@app.get("/add", response_class=HTMLResponse)
+async def add_new_page(request: Request):
+    """Render the add new story page."""
+    return templates.TemplateResponse("add_new.html", {"request": request})
+
+@app.get("/activity", response_class=HTMLResponse)
+async def activity_page(request: Request):
+    """Render the activity page."""
+    return templates.TemplateResponse("activity.html", {"request": request})
+
+@app.get("/calendar", response_class=HTMLResponse)
+async def calendar_page(request: Request):
+    """Render the release calendar page."""
+    return templates.TemplateResponse("calendar.html", {"request": request})
+
+@app.get("/status", response_class=HTMLResponse)
+async def status_page(request: Request):
+    """Render the status page."""
+    return templates.TemplateResponse("status.html", {"request": request})
+
+@app.get("/api/status")
+async def get_system_status():
+    """Get system status metrics."""
+    try:
+        # Disk Usage
+        total, used, free = shutil.disk_usage("/")
+        disk_usage = {
+            "total": f"{total / (1024**3):.2f} GB",
+            "used": f"{used / (1024**3):.2f} GB",
+            "free": f"{free / (1024**3):.2f} GB",
+            "percent": f"{(used / total) * 100:.1f}%"
+        }
+
+        # Database Size
+        db_url = config_manager.get("database_url", "sqlite:///library.db")
+        db_size = "Unknown"
+        if db_url.startswith("sqlite"):
+            db_path = db_url.replace("sqlite:///", "")
+            if os.path.exists(db_path):
+                size_bytes = os.path.getsize(db_path)
+                db_size = f"{size_bytes / (1024**2):.2f} MB"
+
+        # Memory Usage
+        mem = psutil.virtual_memory()
+        memory_usage = {
+            "total": f"{mem.total / (1024**3):.2f} GB",
+            "available": f"{mem.available / (1024**3):.2f} GB",
+            "percent": f"{mem.percent}%"
+        }
+
+        # Process Memory
+        process = psutil.Process()
+        process_mem = process.memory_info().rss / (1024**2) # MB
+
+        # CPU Usage
+        cpu_percent = psutil.cpu_percent(interval=None)
+
+        # Uptime
+        uptime_seconds = time.time() - START_TIME
+        uptime_hours = int(uptime_seconds // 3600)
+        uptime_minutes = int((uptime_seconds % 3600) // 60)
+        uptime = f"{uptime_hours}h {uptime_minutes}m"
+
+        return {
+            "disk": disk_usage,
+            "database_size": db_size,
+            "memory": memory_usage,
+            "process_memory": f"{process_mem:.2f} MB",
+            "cpu_percent": f"{cpu_percent}%",
+            "uptime": uptime
+        }
+    except Exception as e:
+        logger.error(f"Error fetching status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/logs")
+async def get_logs(lines: int = 100):
+    """Get the last N lines of logs."""
+    log_file = "logs/scrollarr.log"
+    try:
+        if not os.path.exists(log_file):
+            return {"logs": "Log file not found."}
+
+        from collections import deque
+        with open(log_file, "r") as f:
+            # Efficiently read last N lines
+            last_lines = deque(f, maxlen=lines)
+            return {"logs": "".join(last_lines)}
+    except Exception as e:
+         logger.error(f"Error reading logs: {e}")
+         return {"logs": f"Error reading logs: {str(e)}"}
+
+@app.get("/api/calendar")
+async def get_calendar_events(response: Response, start: Optional[str] = None, end: Optional[str] = None):
+    """Get calendar events for all stories."""
+    # Prevent caching
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+    if not story_manager:
+        raise HTTPException(status_code=500, detail="StoryManager not initialized")
+
+    try:
+        events = story_manager.get_calendar_events(start, end)
+        return events
+    except Exception as e:
+        logger.error(f"Error fetching calendar events: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    """Render the settings page."""
+    return templates.TemplateResponse("settings.html", {"request": request})
+
+@app.get("/settings/naming", response_class=HTMLResponse)
+async def naming_settings_page(request: Request):
+    """Render the naming settings page."""
+    return templates.TemplateResponse("naming_settings.html", {"request": request})
+
+@app.get("/api-docs", response_class=HTMLResponse)
+async def api_docs_page(request: Request):
+    """Render the API documentation page."""
+    return templates.TemplateResponse("api_docs.html", {"request": request})
+
+@app.get("/sources", response_class=HTMLResponse)
+async def sources_page(request: Request):
+    """Render the sources page."""
+    return templates.TemplateResponse("sources.html", {"request": request})
+
+@app.get("/notifications", response_class=HTMLResponse)
+async def notifications_page(request: Request):
+    """Render the notifications page."""
+    return templates.TemplateResponse("notifications.html", {"request": request})
+
+@app.get("/profiles", response_class=HTMLResponse)
+async def profiles_page(request: Request):
+    """Render the profiles page."""
+    return templates.TemplateResponse("profiles.html", {"request": request})
+
+@app.get("/search", response_class=HTMLResponse)
+async def search_page(request: Request):
+    """Render the search page."""
+    return templates.TemplateResponse("search.html", {"request": request})
+
+@app.get("/api/search")
+def search_stories(query: str, provider: Optional[str] = None):
+    """Search for stories."""
+    if not story_manager:
+        raise HTTPException(status_code=500, detail="StoryManager not initialized")
+
+    try:
+        results = story_manager.search(query, provider)
+        return results
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/sources/{source_key}/config")
+async def config_source(source_key: str, config: Dict, db: Session = Depends(get_db)):
+    """Update source configuration."""
+    source = db.query(Source).filter(Source.key == source_key).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    try:
+        # Store as JSON string
+        import json
+        source.config = json.dumps(config)
+        db.commit()
+
+        # Reload providers to apply new config
+        if story_manager:
+            story_manager.reload_providers()
+
+        return {"message": f"Configuration for {source.name} updated"}
+    except Exception as e:
+        logger.error(f"Config update error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/queue")
+async def get_queue(db: Session = Depends(get_db)):
+    """Get pending chapters."""
+    # Limit to top 50 to avoid huge response if backlog is large
+    pending_chapters = db.query(Chapter).filter(Chapter.status == 'pending').order_by(Chapter.id.asc()).limit(50).all()
+
+    result = []
+    for chapter in pending_chapters:
+        result.append({
+            "id": chapter.id,
+            "story_id": chapter.story_id,
+            "story_title": chapter.story.title if chapter.story else "Unknown Story",
+            "chapter_title": chapter.title,
+            "index": chapter.index
+        })
+    return result
+
+@app.get("/api/history")
+async def get_history(db: Session = Depends(get_db)):
+    """Get download history."""
+    history = db.query(DownloadHistory).order_by(desc(DownloadHistory.timestamp)).limit(100).all()
+
+    result = []
+    for h in history:
+        result.append({
+            "id": h.id,
+            "story_title": h.story.title if h.story else "Unknown Story",
+            "chapter_title": h.chapter.title if h.chapter else "Unknown Chapter",
+            "status": h.status,
+            "timestamp": h.timestamp.isoformat() if h.timestamp else None,
+            "details": h.details,
+            "chapter_id": h.chapter_id
+        })
+    return result
+
+@app.post("/api/chapter/{chapter_id}/retry")
+async def retry_chapter(chapter_id: int, db: Session = Depends(get_db)):
+    """Retry a failed chapter."""
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
+    chapter.status = 'pending'
+    db.commit()
+    return {"message": "Chapter queued for retry"}
+
+@app.get("/api/settings")
+async def get_settings():
+    """Get current configuration."""
+    config = config_manager.config.copy()
+    # Mask secrets
+    config['auth_password'] = ""
+    config['session_secret'] = ""
+    return config
+
+@app.post("/api/settings")
+async def update_settings(settings: SettingsRequest):
+    """Update configuration."""
+    try:
+        config_manager.set("download_path", settings.download_path)
+        config_manager.set("min_delay", settings.min_delay)
+        config_manager.set("max_delay", settings.max_delay)
+        config_manager.set("user_agent", settings.user_agent)
+        config_manager.set("update_interval_hours", settings.update_interval_hours)
+        config_manager.set("worker_sleep_min", settings.worker_sleep_min)
+        config_manager.set("worker_sleep_max", settings.worker_sleep_max)
+        config_manager.set("database_url", settings.database_url)
+        config_manager.set("log_level", settings.log_level)
+        config_manager.set("library_path", settings.library_path)
+        config_manager.set("compiled_filename_pattern", settings.compiled_filename_pattern)
+        config_manager.set("story_folder_format", settings.story_folder_format)
+        config_manager.set("chapter_file_format", settings.chapter_file_format)
+        config_manager.set("volume_folder_format", settings.volume_folder_format)
+        config_manager.set("single_chapter_name_format", settings.single_chapter_name_format)
+        config_manager.set("chapter_group_name_format", settings.chapter_group_name_format)
+        config_manager.set("volume_name_format", settings.volume_name_format)
+        config_manager.set("full_story_name_format", settings.full_story_name_format)
+
+        # Auth Settings
+        config_manager.set("auth_method", settings.auth_method)
+        config_manager.set("local_auth_disabled", settings.local_auth_disabled)
+
+        if settings.auth_username:
+             config_manager.set("auth_username", settings.auth_username)
+
+        if settings.auth_password: # Only update if provided
+             config_manager.set("auth_password", get_password_hash(settings.auth_password))
+
+        # Update jobs with new settings
+        if job_manager:
+            job_manager.update_jobs()
+
+        return {"message": "Settings updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating settings: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update settings")
+
+@app.post("/api/settings/apikey")
+async def regenerate_api_key():
+    """Regenerate API Key."""
+    new_key = str(uuid.uuid4())
+    config_manager.set("api_key", new_key)
+    return {"api_key": new_key}
+
+@app.get("/api/sources")
+async def get_sources(db: Session = Depends(get_db)):
+    """Get all sources."""
+    sources = db.query(Source).order_by(Source.name.asc()).all()
+    return [{"name": s.name, "key": s.key, "is_enabled": s.is_enabled} for s in sources]
+
+@app.post("/api/sources/{source_key}/toggle")
+async def toggle_source(source_key: str, db: Session = Depends(get_db)):
+    """Toggle a source enabled state."""
+    source = db.query(Source).filter(Source.key == source_key).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    source.is_enabled = not source.is_enabled
+    db.commit()
+
+    # Reload providers in story_manager
+    if story_manager:
+        story_manager.reload_providers()
+
+    return {"message": f"Source {source.name} {'enabled' if source.is_enabled else 'disabled'}", "is_enabled": source.is_enabled}
+
+@app.post("/api/lookup")
+def lookup_story(request: UrlRequest):
+    """Lookup story metadata without saving."""
+    if not story_manager:
+        raise HTTPException(status_code=500, detail="StoryManager not initialized")
+
+    try:
+        provider = story_manager.source_manager.get_provider_for_url(request.url)
+        if not provider:
+            raise HTTPException(status_code=400, detail="Provider not found for this URL")
+
+        metadata = provider.get_metadata(request.url)
+        # Ensure values are JSON serializable (sometimes description might be complex, but here it's string)
+        return metadata
+    except Exception as e:
+        logger.error(f"Lookup error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/add")
+def add_story(request: UrlRequest):
+    """Add a story to the database."""
+    if not story_manager:
+        raise HTTPException(status_code=500, detail="StoryManager not initialized")
+
+    try:
+        story_id = story_manager.add_story(request.url, request.profile_id, request.provider_key)
+        return {"story_id": story_id, "message": "Story added successfully"}
+    except Exception as e:
+        logger.error(f"Add story error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/progress")
+async def get_progress(db: Session = Depends(get_db)):
+    """Get progress of all stories."""
+    stories = db.query(Story).all()
+    result = []
+    for story in stories:
+        total = len(story.chapters)
+        downloaded = sum(1 for c in story.chapters if c.status == 'downloaded')
+        failed = sum(1 for c in story.chapters if c.status == 'failed')
+        progress = (downloaded / total * 100) if total > 0 else 0
+
+        result.append({
+            "id": story.id,
+            "title": story.title,
+            "progress": round(progress, 1),
+            "downloaded": downloaded,
+            "failed": failed,
+            "total": total,
+            "status": story.status
+        })
+    return result
+
+@app.post("/api/story/{story_id}/update")
+def update_story(story_id: int):
+    """Force update a single story."""
+    if not story_manager:
+        raise HTTPException(status_code=500, detail="StoryManager not initialized")
+    try:
+        new_chapters = story_manager.check_story_updates(story_id)
+        return {"message": f"Update complete. Found {new_chapters} new chapters.", "new_chapters": new_chapters}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Update error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/story/{story_id}/retry")
+def retry_story(story_id: int):
+    """Retry all failed chapters for a story."""
+    if not story_manager:
+        raise HTTPException(status_code=500, detail="StoryManager not initialized")
+    try:
+        count = story_manager.retry_failed_chapters(story_id)
+        return {"message": f"Queued {count} failed chapters for retry.", "count": count}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Retry error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/story/{story_id}/scan-images")
+def scan_story_images(story_id: int):
+    """Scan existing chapters for images and download them."""
+    if not story_manager:
+        raise HTTPException(status_code=500, detail="StoryManager not initialized")
+    try:
+        # This could be long running, ideally background task
+        # For now, we run it synchronously but it might timeout for huge stories
+        # Future improvement: BackgroundTasks
+        count = story_manager.scan_story_images(story_id)
+        return {"message": f"Scanned story. Updated {count} chapters with local images.", "updated_count": count}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Scan images error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/story/{story_id}")
+async def delete_story(story_id: int, delete_content: bool = False):
+    """Delete a story."""
+    if not story_manager:
+        raise HTTPException(status_code=500, detail="StoryManager not initialized")
+    try:
+        story_manager.delete_story(story_id, delete_content)
+        return {"message": "Story deleted successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/story/{story_id}/toggle-notifications")
+async def toggle_story_notifications(story_id: int, db: Session = Depends(get_db)):
+    """Toggle notification settings for a story."""
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    story.notify_on_new_chapter = not story.notify_on_new_chapter
+    db.commit()
+    return {"message": "Notifications updated", "notify_on_new_chapter": story.notify_on_new_chapter}
+
+@app.get("/story/{story_id}", response_class=HTMLResponse)
+async def story_details(story_id: int, request: Request, db: Session = Depends(get_db)):
+    """Render story details page."""
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    chapters = db.query(Chapter).filter(Chapter.story_id == story_id).order_by(Chapter.volume_number, Chapter.index).all()
+
+    # Identify available volumes
+    volume_numbers = sorted(list(set(c.volume_number for c in chapters if c.volume_number is not None)))
+    if not volume_numbers and chapters:
+        volume_numbers = [1]
+
+    # Group chapters by volume
+    grouped_volumes = {}
+    for chapter in chapters:
+        v_num = chapter.volume_number if chapter.volume_number is not None else 1
+        if v_num not in grouped_volumes:
+            grouped_volumes[v_num] = {
+                'number': v_num,
+                'title': chapter.volume_title or f"Volume {v_num}",
+                'chapters': [],
+                'downloaded_count': 0,
+                'failed_count': 0
+            }
+        # Update title if it was missing but found later (though usually consistent within volume)
+        if not grouped_volumes[v_num]['title'] or grouped_volumes[v_num]['title'].startswith("Volume "):
+             if chapter.volume_title:
+                 grouped_volumes[v_num]['title'] = chapter.volume_title
+
+        grouped_volumes[v_num]['chapters'].append(chapter)
+
+        # Update volume stats
+        if chapter.status == 'downloaded':
+            grouped_volumes[v_num]['downloaded_count'] += 1
+        elif chapter.status == 'failed':
+            grouped_volumes[v_num]['failed_count'] += 1
+
+    # Sort volumes
+    volumes = sorted(grouped_volumes.values(), key=lambda x: x['number'])
+
+    # Sort chapters within volumes
+    for vol in volumes:
+        vol['chapters'].sort(key=lambda c: c.index if c.index is not None else 0)
+
+    stats = {
+        'total_volumes': len(volumes),
+        'total_chapters': len(chapters),
+        'downloaded_chapters': sum(1 for c in chapters if c.status == 'downloaded'),
+        'failed_chapters': sum(1 for c in chapters if c.status == 'failed')
+    }
+
+    # Get all profiles
+    profiles = db.query(EbookProfile).all()
+
+    # Check for email notifications
+    email_targets_count = db.query(NotificationSettings).filter(
+        NotificationSettings.kind == 'email',
+        NotificationSettings.enabled == True
+    ).count()
+    has_email_notifications = email_targets_count > 0
+
+    return templates.TemplateResponse("story_details.html", {
+        "request": request,
+        "story": story,
+        "chapters": chapters,
+        "volumes": volumes,
+        "stats": stats,
+        "profiles": profiles,
+        "has_email_notifications": has_email_notifications
+    })
+
+@app.post("/api/compile/{story_id}/{volume_number:int}")
+async def compile_volume(story_id: int, volume_number: int):
+    """Compile a volume into an EPUB."""
+    try:
+        builder = EbookBuilder()
+        output_path = builder.compile_volume(story_id, volume_number)
+
+        if not output_path or not os.path.exists(output_path):
+             raise HTTPException(status_code=500, detail="Failed to create ebook file")
+
+        filename = os.path.basename(output_path)
+        return FileResponse(output_path, media_type='application/epub+zip', filename=filename)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Compile error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/compile/{story_id}/full")
+async def compile_full_story(story_id: int):
+    """Compile the full story into an EPUB."""
+    try:
+        builder = EbookBuilder()
+        output_path = builder.compile_full_story(story_id)
+
+        if not output_path or not os.path.exists(output_path):
+             raise HTTPException(status_code=500, detail="Failed to create ebook file")
+
+        filename = os.path.basename(output_path)
+        return FileResponse(output_path, media_type='application/epub+zip', filename=filename)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Compile full story error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/compile/{story_id}/custom")
+async def compile_custom_story(story_id: int, request: CustomCompileRequest):
+    """Compile a custom selection of chapters."""
+    try:
+        builder = EbookBuilder()
+        output_path = builder.compile_filtered(story_id, request.chapter_ids)
+
+        if not output_path or not os.path.exists(output_path):
+             raise HTTPException(status_code=500, detail="Failed to create ebook file")
+
+        filename = os.path.basename(output_path)
+        return FileResponse(output_path, media_type='application/epub+zip', filename=filename)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Compile custom story error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/email/{story_id}/{volume_number:int}")
+async def email_volume(story_id: int, volume_number: int, db: Session = Depends(get_db)):
+    """Compile and email a volume."""
+    try:
+        # Check for enabled email notifications
+        email_targets = db.query(NotificationSettings).filter(
+            NotificationSettings.kind == 'email',
+            NotificationSettings.enabled == True
+        ).all()
+
+        if not email_targets:
+            raise HTTPException(status_code=400, detail="No enabled email notifications found.")
+
+        if not config_manager.get('smtp_host'):
+             raise HTTPException(status_code=400, detail="SMTP settings are not configured. Please check Settings > Notifications.")
+
+        builder = EbookBuilder()
+        output_path = builder.compile_volume(story_id, volume_number)
+
+        if not output_path or not os.path.exists(output_path):
+             raise HTTPException(status_code=500, detail="Failed to create ebook file")
+
+        nm = NotificationManager()
+        story = db.query(Story).filter(Story.id == story_id).first()
+        story_title = story.title if story else "Unknown Story"
+        subject = f"Ebook: {story_title} - Volume {volume_number}"
+
+        body_with_file = f"Attached is the compiled ebook for {story_title}, Volume {volume_number}."
+        body_without_file = f"The compiled ebook for {story_title}, Volume {volume_number} has been created and sent to your other devices."
+
+        # Filter targets
+        targets_with_attach = [t for t in email_targets if t.attach_file]
+        targets_without_attach = [t for t in email_targets if not t.attach_file]
+
+        # If no one is explicitly set to receive files, then everyone receives the file (fallback)
+        send_file_to_all_others = len(targets_with_attach) == 0
+
+        sent_count = 0
+
+        # 1. Targets explicitly requesting files
+        for target in targets_with_attach:
+            nm.send_email(target.target, subject, body_with_file, str(output_path))
+            sent_count += 1
+
+        # 2. Targets NOT requesting files
+        for target in targets_without_attach:
+            if send_file_to_all_others:
+                # Fallback: Send file anyway because no one else is getting it
+                nm.send_email(target.target, subject, body_with_file, str(output_path))
+            else:
+                # Send notification only
+                nm.send_email(target.target, subject, body_without_file, None)
+            sent_count += 1
+
+        return {"message": f"Ebook sent to {sent_count} recipients."}
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Email volume error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/email/{story_id}/full")
+async def email_full_story(story_id: int, db: Session = Depends(get_db)):
+    """Compile and email the full story."""
+    try:
+        # Check for enabled email notifications
+        email_targets = db.query(NotificationSettings).filter(
+            NotificationSettings.kind == 'email',
+            NotificationSettings.enabled == True
+        ).all()
+
+        if not email_targets:
+            raise HTTPException(status_code=400, detail="No enabled email notifications found.")
+
+        if not config_manager.get('smtp_host'):
+             raise HTTPException(status_code=400, detail="SMTP settings are not configured. Please check Settings > Notifications.")
+
+        builder = EbookBuilder()
+        output_path = builder.compile_full_story(story_id)
+
+        if not output_path or not os.path.exists(output_path):
+             raise HTTPException(status_code=500, detail="Failed to create ebook file")
+
+        nm = NotificationManager()
+        story = db.query(Story).filter(Story.id == story_id).first()
+        story_title = story.title if story else "Unknown Story"
+        subject = f"Ebook: {story_title} - Full Story"
+
+        body_with_file = f"Attached is the compiled ebook for the full story: {story_title}."
+        body_without_file = f"The compiled ebook for the full story: {story_title} has been created and sent to your other devices."
+
+        # Filter targets
+        targets_with_attach = [t for t in email_targets if t.attach_file]
+        targets_without_attach = [t for t in email_targets if not t.attach_file]
+
+        # If no one is explicitly set to receive files, then everyone receives the file (fallback)
+        send_file_to_all_others = len(targets_with_attach) == 0
+
+        sent_count = 0
+
+        # 1. Targets explicitly requesting files
+        for target in targets_with_attach:
+            nm.send_email(target.target, subject, body_with_file, str(output_path))
+            sent_count += 1
+
+        # 2. Targets NOT requesting files
+        for target in targets_without_attach:
+            if send_file_to_all_others:
+                # Fallback: Send file anyway because no one else is getting it
+                nm.send_email(target.target, subject, body_with_file, str(output_path))
+            else:
+                # Send notification only
+                nm.send_email(target.target, subject, body_without_file, None)
+            sent_count += 1
+
+        return {"message": f"Ebook sent to {sent_count} recipients."}
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Email full story error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/email/{story_id}/custom")
+async def email_custom_story(story_id: int, request: CustomCompileRequest, db: Session = Depends(get_db)):
+    """Compile and email a custom selection of chapters."""
+    try:
+        # Check for enabled email notifications
+        email_targets = db.query(NotificationSettings).filter(
+            NotificationSettings.kind == 'email',
+            NotificationSettings.enabled == True
+        ).all()
+
+        if not email_targets:
+            raise HTTPException(status_code=400, detail="No enabled email notifications found.")
+
+        if not config_manager.get('smtp_host'):
+             raise HTTPException(status_code=400, detail="SMTP settings are not configured. Please check Settings > Notifications.")
+
+        builder = EbookBuilder()
+        output_path = builder.compile_filtered(story_id, request.chapter_ids)
+
+        if not output_path or not os.path.exists(output_path):
+             raise HTTPException(status_code=500, detail="Failed to create ebook file")
+
+        nm = NotificationManager()
+        story = db.query(Story).filter(Story.id == story_id).first()
+        story_title = story.title if story else "Unknown Story"
+        subject = f"Ebook: {story_title} - Custom Selection"
+
+        body_with_file = f"Attached is the compiled ebook for {story_title} (Custom Selection)."
+        body_without_file = f"The compiled ebook for {story_title} (Custom Selection) has been created and sent to your other devices."
+
+        # Filter targets
+        targets_with_attach = [t for t in email_targets if t.attach_file]
+        targets_without_attach = [t for t in email_targets if not t.attach_file]
+
+        # If no one is explicitly set to receive files, then everyone receives the file (fallback)
+        send_file_to_all_others = len(targets_with_attach) == 0
+
+        sent_count = 0
+
+        # 1. Targets explicitly requesting files
+        for target in targets_with_attach:
+            nm.send_email(target.target, subject, body_with_file, str(output_path))
+            sent_count += 1
+
+        # 2. Targets NOT requesting files
+        for target in targets_without_attach:
+            if send_file_to_all_others:
+                # Fallback: Send file anyway because no one else is getting it
+                nm.send_email(target.target, subject, body_with_file, str(output_path))
+            else:
+                # Send notification only
+                nm.send_email(target.target, subject, body_without_file, None)
+            sent_count += 1
+
+        return {"message": f"Ebook sent to {sent_count} recipients."}
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Email custom story error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/profiles", response_model=List[ProfileResponse])
+async def get_profiles(db: Session = Depends(get_db)):
+    """Get all profiles."""
+    profiles = db.query(EbookProfile).all()
+    return profiles
+
+@app.post("/api/profiles", response_model=ProfileResponse)
+async def create_profile(profile: ProfileCreate, db: Session = Depends(get_db)):
+    """Create a new profile."""
+    # Check if name exists
+    existing = db.query(EbookProfile).filter(EbookProfile.name == profile.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Profile with this name already exists")
+
+    new_profile = EbookProfile(
+        name=profile.name,
+        description=profile.description,
+        css=profile.css,
+        output_format=profile.output_format,
+        pdf_page_size=profile.pdf_page_size
+    )
+    db.add(new_profile)
+    db.commit()
+    db.refresh(new_profile)
+    return new_profile
+
+@app.put("/api/profiles/{profile_id}", response_model=ProfileResponse)
+async def update_profile(profile_id: int, profile: ProfileUpdate, db: Session = Depends(get_db)):
+    """Update a profile."""
+    db_profile = db.query(EbookProfile).filter(EbookProfile.id == profile_id).first()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    if profile.name:
+        # Check uniqueness if name changed
+        if profile.name != db_profile.name:
+             existing = db.query(EbookProfile).filter(EbookProfile.name == profile.name).first()
+             if existing:
+                 raise HTTPException(status_code=400, detail="Profile with this name already exists")
+        db_profile.name = profile.name
+
+    if profile.description is not None:
+        db_profile.description = profile.description
+    if profile.css is not None:
+        db_profile.css = profile.css
+    if profile.output_format is not None:
+        db_profile.output_format = profile.output_format
+    if profile.pdf_page_size is not None:
+        db_profile.pdf_page_size = profile.pdf_page_size
+
+    db.commit()
+    return db_profile
+
+@app.delete("/api/profiles/{profile_id}")
+async def delete_profile(profile_id: int, db: Session = Depends(get_db)):
+    """Delete a profile."""
+    # Prevent deleting default profile (id=1)
+    if profile_id == 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the default profile")
+
+    db_profile = db.query(EbookProfile).filter(EbookProfile.id == profile_id).first()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    # Check if used by stories
+    used_count = db.query(Story).filter(Story.profile_id == profile_id).count()
+    if used_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete profile because it is used by {used_count} stories")
+
+    db.delete(db_profile)
+    db.commit()
+    return {"message": "Profile deleted"}
+
+@app.post("/api/story/{story_id}/set_profile")
+async def set_story_profile(story_id: int, request: SetProfileRequest, db: Session = Depends(get_db)):
+    """Assign a profile to a story."""
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    profile = db.query(EbookProfile).filter(EbookProfile.id == request.profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    story.profile_id = request.profile_id
+    db.commit()
+    return {"message": f"Profile set to {profile.name}"}
+
+# Notification API Endpoints
+
+@app.get("/api/notifications/settings")
+async def get_notification_settings(db: Session = Depends(get_db)):
+    """Get all notification settings and SMTP config."""
+    targets = db.query(NotificationSettings).all()
+
+    smtp_config = {
+        "smtp_host": config_manager.get("smtp_host", ""),
+        "smtp_port": int(config_manager.get("smtp_port", 587)),
+        "smtp_user": config_manager.get("smtp_user", ""),
+        "smtp_password": config_manager.get("smtp_password", ""),
+        "smtp_from_email": config_manager.get("smtp_from_email", "")
+    }
+
+    return {
+        "targets": [NotificationResponse.model_validate(t) for t in targets],
+        "smtp": smtp_config
+    }
+
+@app.post("/api/notifications/smtp")
+async def update_smtp_settings(settings: SmtpSettingsRequest):
+    """Update SMTP configuration."""
+    try:
+        config_manager.set("smtp_host", settings.smtp_host)
+        config_manager.set("smtp_port", settings.smtp_port)
+        config_manager.set("smtp_user", settings.smtp_user)
+        config_manager.set("smtp_password", settings.smtp_password)
+        config_manager.set("smtp_from_email", settings.smtp_from_email)
+        return {"message": "SMTP settings updated"}
+    except Exception as e:
+        logger.error(f"Error updating SMTP settings: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update SMTP settings")
+
+@app.post("/api/notifications/targets", response_model=NotificationResponse)
+async def create_notification_target(target: NotificationCreate, db: Session = Depends(get_db)):
+    """Create a new notification target."""
+    new_target = NotificationSettings(
+        name=target.name,
+        kind=target.kind,
+        target=target.target,
+        events=target.events,
+        attach_file=target.attach_file,
+        enabled=target.enabled
+    )
+    db.add(new_target)
+    db.commit()
+    db.refresh(new_target)
+    return new_target
+
+@app.put("/api/notifications/targets/{target_id}", response_model=NotificationResponse)
+async def update_notification_target(target_id: int, target: NotificationUpdate, db: Session = Depends(get_db)):
+    """Update a notification target."""
+    db_target = db.query(NotificationSettings).filter(NotificationSettings.id == target_id).first()
+    if not db_target:
+        raise HTTPException(status_code=404, detail="Target not found")
+
+    if target.name is not None:
+        db_target.name = target.name
+    if target.kind is not None:
+        db_target.kind = target.kind
+    if target.target is not None:
+        db_target.target = target.target
+    if target.events is not None:
+        db_target.events = target.events
+    if target.attach_file is not None:
+        db_target.attach_file = target.attach_file
+    if target.enabled is not None:
+        db_target.enabled = target.enabled
+
+    db.commit()
+    return db_target
+
+@app.delete("/api/notifications/targets/{target_id}")
+async def delete_notification_target(target_id: int, db: Session = Depends(get_db)):
+    """Delete a notification target."""
+    db_target = db.query(NotificationSettings).filter(NotificationSettings.id == target_id).first()
+    if not db_target:
+        raise HTTPException(status_code=404, detail="Target not found")
+
+    db.delete(db_target)
+    db.commit()
+    return {"message": "Target deleted"}
+
+@app.post("/api/notifications/test")
+async def test_notification(request: TestNotificationRequest):
+    """Send a test notification."""
+    nm = NotificationManager()
+    try:
+        if request.kind == 'email':
+            nm.send_email(request.target, "Scrollarr Test", "This is a test notification from Scrollarr.")
+        elif request.kind == 'webhook':
+            nm.send_webhook(request.target, "This is a test notification from Scrollarr.", {"source": "test"})
+        else:
+            raise HTTPException(status_code=400, detail="Invalid kind")
+
+        return {"message": "Test notification sent"}
+    except Exception as e:
+        logger.error(f"Test notification failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/import", response_class=HTMLResponse)
+async def import_page(request: Request):
+    """Render the import page."""
+    return templates.TemplateResponse("import.html", {"request": request})
+
+class ScanRequest(BaseModel):
+    path: str
+
+@app.post("/api/import/scan")
+async def scan_import(request: ScanRequest):
+    """Scan directory for importable files."""
+    if not import_manager:
+         raise HTTPException(status_code=500, detail="ImportManager not initialized")
+    try:
+        results = import_manager.scan_directory(request.path)
+        # Mark as not temporary
+        for r in results:
+            r['is_temp'] = False
+        return results
+    except Exception as e:
+        logger.error(f"Scan error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/import/upload")
+async def upload_import(file: UploadFile = File(...)):
+    """Handle uploaded file for import."""
+    if not import_manager:
+         raise HTTPException(status_code=500, detail="ImportManager not initialized")
+
+    try:
+        # Save to temp
+        temp_dir = Path("temp_uploads")
+        temp_dir.mkdir(exist_ok=True)
+        # Generate safe unique filename
+        ext = Path(file.filename).suffix
+        unique_name = f"{uuid.uuid4()}{ext}"
+        temp_path = temp_dir / unique_name
+
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        metadata = import_manager.extract_metadata(temp_path)
+        metadata['is_temp'] = True
+        return [metadata] # Return as list to match scan format
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ImportConfirmRequest(BaseModel):
+    url: str
+    source_path: Optional[str] = None
+    copy_file: bool = False
+    is_temp: bool = False
+
+@app.post("/api/import/confirm")
+async def confirm_import(request: ImportConfirmRequest):
+    """Confirm and execute import."""
+    if not import_manager:
+         raise HTTPException(status_code=500, detail="ImportManager not initialized")
+
+    try:
+        story_id = import_manager.import_story(
+            request.url,
+            request.source_path,
+            request.copy_file,
+            delete_source=request.is_temp
+        )
+        return {"message": "Import successful", "story_id": story_id}
+    except Exception as e:
+        logger.error(f"Import execution error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/migration/check")
+async def check_migration(db: Session = Depends(get_db)):
+    """Check if library migration is needed."""
+    stories_count = db.query(Story).count()
+    if stories_count == 0:
+        return {"migration_needed": False}
+
+    old_path = config_manager.get('download_path', 'verification_downloads')
+    if os.path.exists(old_path):
+        import glob
+        # Check for directories starting with a digit (ID)
+        candidates = glob.glob(os.path.join(old_path, "[0-9]*_*"))
+        if candidates:
+            return {"migration_needed": True}
+
+    return {"migration_needed": False}
+
+@app.post("/api/migration/start")
+def start_migration(db: Session = Depends(get_db)):
+    """Start library migration."""
+    try:
+        # Pause background jobs to prevent conflicts
+        if job_manager:
+            job_manager.pause()
+
+        stories = db.query(Story).all()
+        lm = LibraryManager()
+        success = 0
+        total = len(stories)
+
+        for story in stories:
+            if lm.migrate_story(db, story):
+                success += 1
+
+        return {"message": f"Migrated {success}/{total} stories successfully."}
+    finally:
+        # Resume background jobs
+        if job_manager:
+            job_manager.resume()

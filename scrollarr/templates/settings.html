@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Scrollarr{% endblock %}
+
+{% block content %}
+    <header class="mb-8">
+        <h1 class="text-3xl font-bold">Settings</h1>
+    </header>
+
+    <div class="bg-gray-800 rounded-lg p-6 shadow-lg max-w-2xl">
+        <h2 class="text-xl font-bold mb-4 text-gray-200">General</h2>
+
+        <form id="settings-form" onsubmit="saveSettings(event)">
+            <div class="mb-6 hidden">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="download-path">
+                    Legacy Download Location
+                </label>
+                <input type="text" id="download-path" name="download_path" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors" placeholder="e.g. saved_stories">
+                <p class="text-xs text-gray-500 mt-2">Legacy setting. Use Library Path below.</p>
+            </div>
+
+            <div class="mb-4 text-gray-400 text-sm italic">
+                <p>Naming settings have been moved to the <a href="/settings/naming" class="text-blue-400 hover:text-blue-300">Naming Settings</a> page.</p>
+            </div>
+
+            <h2 class="text-xl font-bold mb-4 text-gray-200 mt-8">Security</h2>
+            <div class="mb-6">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="api-key">API Key</label>
+                <div class="flex gap-2">
+                    <input type="text" id="api-key" readonly class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none transition-colors select-all">
+                    <button type="button" onclick="regenerateApiKey()" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors whitespace-nowrap">
+                        Regenerate
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="auth-method">Authentication Method</label>
+                <select id="auth-method" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors" onchange="toggleAuthSettings()">
+                    <option value="None">None</option>
+                    <option value="Basic">Basic (Browser Popup)</option>
+                    <option value="Forms">Forms (Login Page)</option>
+                </select>
+            </div>
+
+            <div id="auth-settings" class="hidden space-y-4 mb-6 pl-4 border-l-2 border-gray-600">
+                <div>
+                    <label class="block text-gray-300 text-sm font-bold mb-2" for="auth-username">Username</label>
+                    <input type="text" id="auth-username" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+                <div>
+                    <label class="block text-gray-300 text-sm font-bold mb-2" for="auth-password">Password</label>
+                    <input type="password" id="auth-password" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors" placeholder="Leave blank to keep existing">
+                </div>
+            </div>
+
+            <div class="mb-6 flex items-center">
+                 <input type="checkbox" id="local-auth-required" class="w-5 h-5 text-blue-600 rounded focus:ring-blue-600 ring-offset-gray-800 bg-gray-700 border-gray-600">
+                 <label for="local-auth-required" class="ml-2 text-sm font-medium text-gray-300">Authentication required for Local Addresses</label>
+            </div>
+
+            <h2 class="text-xl font-bold mb-4 text-gray-200 mt-8">Network & Politeness</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-gray-300 text-sm font-bold mb-2" for="min-delay">Min Delay (sec)</label>
+                    <input type="number" step="0.1" id="min-delay" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+                <div>
+                    <label class="block text-gray-300 text-sm font-bold mb-2" for="max-delay">Max Delay (sec)</label>
+                    <input type="number" step="0.1" id="max-delay" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+            </div>
+            <div class="mb-6">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="user-agent">User Agent</label>
+                <input type="text" id="user-agent" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+            </div>
+
+            <h2 class="text-xl font-bold mb-4 text-gray-200 mt-8">Scheduling</h2>
+            <div class="mb-4">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="update-interval">Update Check Interval (hours)</label>
+                <input type="number" id="update-interval" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-gray-300 text-sm font-bold mb-2" for="worker-sleep-min">Worker Sleep Min (sec)</label>
+                    <input type="number" step="1" id="worker-sleep-min" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+                <div>
+                    <label class="block text-gray-300 text-sm font-bold mb-2" for="worker-sleep-max">Worker Sleep Max (sec)</label>
+                    <input type="number" step="1" id="worker-sleep-max" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+            </div>
+
+            <h2 class="text-xl font-bold mb-4 text-gray-200 mt-8">Advanced</h2>
+             <div class="mb-4">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="database-url">Database URL</label>
+                <input type="text" id="database-url" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+                 <p class="text-xs text-gray-500 mt-2">Environment variable DATABASE_URL takes precedence if set.</p>
+            </div>
+            <div class="mb-6">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="log-level">Log Level</label>
+                <select id="log-level" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                </select>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <button type="submit" id="save-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded transition-colors flex items-center gap-2">
+                    Save Changes
+                </button>
+                <span id="status-msg" class="text-sm font-medium"></span>
+            </div>
+        </form>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        let fullSettings = {};
+
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/settings');
+                if (!response.ok) throw new Error('Failed to load settings');
+                fullSettings = await response.json();
+
+                document.getElementById('download-path').value = fullSettings.download_path || '';
+
+                document.getElementById('min-delay').value = fullSettings.min_delay || 2.0;
+                document.getElementById('max-delay').value = fullSettings.max_delay || 5.0;
+                document.getElementById('user-agent').value = fullSettings.user_agent || '';
+                document.getElementById('update-interval').value = fullSettings.update_interval_hours || 1;
+                document.getElementById('worker-sleep-min').value = fullSettings.worker_sleep_min || 30.0;
+                document.getElementById('worker-sleep-max').value = fullSettings.worker_sleep_max || 60.0;
+                document.getElementById('database-url').value = fullSettings.database_url || '';
+                document.getElementById('log-level').value = fullSettings.log_level || 'INFO';
+
+                // Security
+                document.getElementById('api-key').value = fullSettings.api_key || '';
+                document.getElementById('auth-method').value = fullSettings.auth_method || 'None';
+                document.getElementById('auth-username').value = fullSettings.auth_username || '';
+                // Password is not filled for security
+                document.getElementById('local-auth-required').checked = !fullSettings.local_auth_disabled;
+
+                toggleAuthSettings();
+
+            } catch (err) {
+                console.error("Error loading settings:", err);
+                document.getElementById('status-msg').innerText = "Failed to load settings.";
+                document.getElementById('status-msg').className = "text-red-500 text-sm font-medium";
+            }
+        }
+
+        async function saveSettings(e) {
+            e.preventDefault();
+            const btn = document.getElementById('save-btn');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = 'Saving...';
+            document.getElementById('status-msg').innerText = '';
+
+            // Update local fields
+            fullSettings.download_path = document.getElementById('download-path').value;
+            fullSettings.min_delay = parseFloat(document.getElementById('min-delay').value);
+            fullSettings.max_delay = parseFloat(document.getElementById('max-delay').value);
+            fullSettings.user_agent = document.getElementById('user-agent').value;
+            fullSettings.update_interval_hours = parseInt(document.getElementById('update-interval').value);
+            fullSettings.worker_sleep_min = parseFloat(document.getElementById('worker-sleep-min').value);
+            fullSettings.worker_sleep_max = parseFloat(document.getElementById('worker-sleep-max').value);
+            fullSettings.database_url = document.getElementById('database-url').value;
+            fullSettings.log_level = document.getElementById('log-level').value;
+
+            // Security
+            fullSettings.auth_method = document.getElementById('auth-method').value;
+            fullSettings.auth_username = document.getElementById('auth-username').value;
+            const pass = document.getElementById('auth-password').value;
+            if (pass) {
+                fullSettings.auth_password = pass;
+            } else {
+                fullSettings.auth_password = "";
+            }
+            fullSettings.local_auth_disabled = !document.getElementById('local-auth-required').checked;
+
+            try {
+                const response = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(fullSettings)
+                });
+
+                if (!response.ok) throw new Error('Failed to save settings');
+
+                document.getElementById('status-msg').innerText = "Settings saved successfully.";
+                document.getElementById('status-msg').className = "text-green-500 text-sm font-medium";
+
+                setTimeout(() => {
+                     document.getElementById('status-msg').innerText = "";
+                }, 3000);
+
+            } catch (err) {
+                console.error("Error saving settings:", err);
+                document.getElementById('status-msg').innerText = "Failed to save settings.";
+                document.getElementById('status-msg').className = "text-red-500 text-sm font-medium";
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+
+        function toggleAuthSettings() {
+            const method = document.getElementById('auth-method').value;
+            const settingsDiv = document.getElementById('auth-settings');
+            if (method === 'None') {
+                settingsDiv.classList.add('hidden');
+            } else {
+                settingsDiv.classList.remove('hidden');
+            }
+        }
+
+        async function regenerateApiKey() {
+            if (!confirm("Are you sure? This will invalidate the existing API Key.")) return;
+            try {
+                const response = await fetch('/api/settings/apikey', { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to regenerate key');
+                const data = await response.json();
+                document.getElementById('api-key').value = data.api_key;
+                fullSettings.api_key = data.api_key;
+            } catch (err) {
+                alert("Failed to regenerate API Key");
+                console.error(err);
+            }
+        }
+
+        loadSettings();
+    </script>
+{% endblock %}

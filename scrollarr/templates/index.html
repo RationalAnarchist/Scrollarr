@@ -6,6 +6,19 @@
     <header class="flex justify-between items-center mb-8">
         <h1 class="text-3xl font-bold">Library</h1>
         <div class="flex items-center gap-4">
+            <div class="relative group">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400 cursor-help hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div class="absolute right-0 mt-2 w-72 p-4 bg-gray-800 rounded-lg shadow-xl border border-gray-700 text-sm text-gray-300 hidden group-hover:block z-50">
+                    <p class="mb-2 text-white font-bold">Quick Start:</p>
+                    <ol class="list-decimal list-inside space-y-2 text-gray-400">
+                        <li>Turn on sources in the <a href="/sources" class="text-blue-400 hover:underline">Sources</a> tab.</li>
+                        <li>Click <a href="/search" class="text-blue-400 hover:underline">Add New</a> to find and add stories.</li>
+                        <li>Configure <a href="/notifications" class="text-blue-400 hover:underline">Notifications</a> to get updates.</li>
+                    </ol>
+                </div>
+            </div>
             <div class="flex bg-gray-800 rounded-lg p-1">
                 <button onclick="toggleView('grid')" id="btn-grid" class="p-2 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" title="Grid View">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -148,8 +161,96 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
         </svg>
         <p class="text-xl">Your library is empty.</p>
-        <a href="/add" class="mt-4 text-blue-500 hover:text-blue-400">Add your first story &rarr;</a>
+
+        {% if sources_enabled_count == 0 %}
+            <p class="mt-2 text-sm text-yellow-500">No sources are currently enabled.</p>
+            <div class="flex gap-4 mt-4">
+                 <a href="/sources" class="text-blue-500 hover:text-blue-400 font-bold border border-blue-500/50 px-4 py-2 rounded hover:bg-blue-500/10">Enable Sources &rarr;</a>
+                 <a href="/import" class="text-gray-400 hover:text-gray-300 px-4 py-2">Import from Disk</a>
+            </div>
+        {% else %}
+             <div class="flex gap-4 mt-4">
+                 <a href="/search" class="text-blue-500 hover:text-blue-400 font-bold border border-blue-500/50 px-4 py-2 rounded hover:bg-blue-500/10">Find Stories &rarr;</a>
+                 <a href="/import" class="text-gray-400 hover:text-gray-300 px-4 py-2">Import from Disk</a>
+            </div>
+        {% endif %}
     </div>
+    {% endif %}
+
+    <!-- Security Setup Modal -->
+    {% if auth_method == 'NotDecided' %}
+    <div id="security-modal" class="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+        <div class="bg-gray-800 p-8 rounded-lg shadow-2xl max-w-md w-full border border-gray-700">
+            <h2 class="text-2xl font-bold mb-4 text-white">Security Setup</h2>
+            <p class="text-gray-300 mb-6">
+                Welcome to Scrollarr! Please choose how you want to secure your library.
+                <span class="text-xs text-gray-400 block mt-2">You can change this later in Settings.</span>
+            </p>
+
+            <div class="space-y-4" id="auth-choices">
+                <button onclick="setAuth('None')" class="w-full py-3 px-4 bg-gray-700 hover:bg-gray-600 rounded text-left flex items-center justify-between group transition-colors">
+                    <div>
+                        <div class="font-bold text-white">No Login</div>
+                        <div class="text-xs text-gray-400">Best for local networks. No password required.</div>
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500 group-hover:text-white" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+
+                <button onclick="showSecureForm('Basic')" class="w-full py-3 px-4 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-900/50 hover:border-blue-500 rounded text-left flex items-center justify-between group transition-all">
+                     <div>
+                        <div class="font-bold text-blue-100">Secure Login</div>
+                        <div class="text-xs text-blue-300/70">Username & Password required.</div>
+                    </div>
+                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Hidden Form for Secure Login -->
+            <form id="secure-form" class="hidden mt-6 space-y-4 animate-fade-in" action="/setup" method="POST">
+                 <input type="hidden" name="auth_method" id="auth_method_input" value="Basic">
+
+                 <div>
+                    <label class="block text-gray-400 text-xs uppercase font-bold mb-1">Username</label>
+                    <input type="text" name="username" required class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-blue-500 focus:outline-none">
+                 </div>
+
+                 <div>
+                    <label class="block text-gray-400 text-xs uppercase font-bold mb-1">Password</label>
+                    <input type="password" name="password" required class="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-blue-500 focus:outline-none">
+                 </div>
+
+                 <div class="flex gap-2 pt-2">
+                     <button type="button" onclick="hideSecureForm()" class="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors">Cancel</button>
+                     <button type="submit" class="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded transition-colors">Save</button>
+                 </div>
+            </form>
+
+            <!-- Hidden Form for None -->
+            <form id="none-form" class="hidden" action="/setup" method="POST">
+                 <input type="hidden" name="auth_method" value="None">
+            </form>
+        </div>
+    </div>
+    <script>
+        function setAuth(method) {
+            if (method === 'None') {
+                document.getElementById('none-form').submit();
+            }
+        }
+        function showSecureForm(method) {
+            document.getElementById('secure-form').classList.remove('hidden');
+            document.getElementById('auth_method_input').value = method;
+            document.getElementById('auth-choices').classList.add('hidden');
+        }
+        function hideSecureForm() {
+            document.getElementById('secure-form').classList.add('hidden');
+            document.getElementById('auth-choices').classList.remove('hidden');
+        }
+    </script>
     {% endif %}
 
     <!-- Migration Modal -->

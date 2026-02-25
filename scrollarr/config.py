@@ -32,7 +32,7 @@ class ConfigManager:
         "full_story_name_format": "{Title} - Full story to {EndChapter}",
 
         # Security defaults
-        "auth_method": "None",
+        "auth_method": "NotDecided",
         "auth_username": "",
         "auth_password": "",
         "api_key": "",

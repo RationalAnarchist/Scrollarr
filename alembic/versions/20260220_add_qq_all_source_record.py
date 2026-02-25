@@ -25,7 +25,7 @@ def upgrade() -> None:
     count = result.scalar()
 
     if count == 0:
-        op.execute("INSERT INTO sources (name, key, is_enabled) VALUES ('Questionable Questing (All Posts)', 'questionablequesting_all', 1)")
+        op.execute("INSERT INTO sources (name, key, is_enabled) VALUES ('Questionable Questing (All Posts)', 'questionablequesting_all', 0)")
 
 
 def downgrade() -> None:

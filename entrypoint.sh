@@ -12,6 +12,9 @@ if [ "$(id -u appuser)" != "$PUID" ] || [ "$(id -g appuser)" != "$PGID" ]; then
     usermod -o -u "$PUID" appuser
 fi
 
+# Ensure appuser owns the home directory to avoid permission issues
+chown appuser:appuser /home/appuser
+
 # Ensure directories exist
 mkdir -p /app/config /app/library /app/saved_stories /app/logs
 
@@ -45,7 +48,7 @@ if [ ! -f "/app/config/config.json" ]; then
     fi
 fi
 
-# Fix permissions
+# Fix permissions (force ownership to match current appuser UID/GID)
 echo "Fixing permissions..."
 chown -R appuser:appuser /app/config /app/library /app/saved_stories /app/logs
 

@@ -2,21 +2,26 @@ import os
 import unittest
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from unittest.mock import MagicMock
-from unittest.mock import MagicMock, patch
-from scrollarr.database import Base, engine, SessionLocal, Story, Chapter, EbookProfile
-from scrollarr.story_manager import StoryManager
 
-# Ensure we use a test database
-os.environ['DATABASE_URL'] = 'sqlite:///test_manual.db'
+from unittest.mock import MagicMock, patch
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from scrollarr.database import Base, EbookProfile, Chapter, Story
+from scrollarr.story_manager import StoryManager
 
 class TestManualInteraction(unittest.TestCase):
     def setUp(self):
-        # Create tables
-        Base.metadata.create_all(bind=engine)
+        # Create a clean in-memory database for this test
+        self.test_engine = create_engine('sqlite:///:memory:')
+        Base.metadata.create_all(bind=self.test_engine)
+        self.TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.test_engine)
 
-        # Create default profile (ID=1) which is required by StoryManager.add_story
-        session = SessionLocal()
+        # Patch SessionLocal in story_manager so it uses our test DB
+        self.sm_session_patcher = patch('scrollarr.story_manager.SessionLocal', self.TestSessionLocal)
+        self.sm_session_patcher.start()
+
+        # Create default profile (ID=1) using our test session
+        session = self.TestSessionLocal()
         try:
             profile = EbookProfile(name="Standard", output_format="epub")
             session.add(profile)
@@ -24,7 +29,7 @@ class TestManualInteraction(unittest.TestCase):
         finally:
             session.close()
 
-        # Patch init_db to avoid migration errors in test environment
+        # Patch init_db to avoid migration errors/re-init in test environment
         with patch('scrollarr.story_manager.init_db'):
             self.manager = StoryManager()
 
@@ -40,15 +45,11 @@ class TestManualInteraction(unittest.TestCase):
             {'title': 'Chapter 2', 'url': 'http://example.com/2'}
         ]
 
-        # Inject mock provider.
-        # SourceManager.get_provider_for_url usually iterates registered providers.
-        # We can mock get_provider_for_url directly on the source_manager instance.
+        # Inject mock provider
         self.manager.source_manager.get_provider_for_url = MagicMock(return_value=self.mock_provider)
 
     def tearDown(self):
-        Base.metadata.drop_all(bind=engine)
-        if os.path.exists("test_manual.db"):
-            os.remove("test_manual.db")
+        self.sm_session_patcher.stop()
 
     def test_check_story_updates(self):
         # 1. Add story with 2 chapters
@@ -67,7 +68,7 @@ class TestManualInteraction(unittest.TestCase):
         # 4. Verify
         self.assertEqual(new_count, 1)
 
-        session = SessionLocal()
+        session = self.TestSessionLocal()
         chapters = session.query(Chapter).filter(Chapter.story_id == story_id).all()
         self.assertEqual(len(chapters), 3)
         session.close()
@@ -77,7 +78,7 @@ class TestManualInteraction(unittest.TestCase):
         story_id = self.manager.add_story("http://example.com/story")
 
         # 2. Mark a chapter as failed
-        session = SessionLocal()
+        session = self.TestSessionLocal()
         chapter = session.query(Chapter).filter(Chapter.story_id == story_id, Chapter.index == 1).first()
         chapter.status = 'failed'
         session.commit()
@@ -89,7 +90,7 @@ class TestManualInteraction(unittest.TestCase):
         # 4. Verify
         self.assertEqual(count, 1)
 
-        session = SessionLocal()
+        session = self.TestSessionLocal()
         chapter = session.query(Chapter).filter(Chapter.story_id == story_id, Chapter.index == 1).first()
         self.assertEqual(chapter.status, 'pending')
         session.close()

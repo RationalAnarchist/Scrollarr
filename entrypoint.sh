@@ -38,4 +38,11 @@ fi
 echo "Fixing permissions..."
 chown -R appuser:appuser /app/config /app/library /app/saved_stories /app/logs
 
+# Fix permissions for database files in root if they exist (legacy location)
+for db_file in /app/library.db /app/library.db-shm /app/library.db-wal; do
+    if [ -f "$db_file" ]; then
+        chown appuser:appuser "$db_file"
+    fi
+done
+
 exec gosu appuser "$@"

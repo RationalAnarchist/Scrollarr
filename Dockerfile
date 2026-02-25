@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1
 
 # Install dependencies and curl for healthcheck
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && apt-get install -y curl gosu && rm -rf /var/lib/apt/lists/* && \
     pip install --no-cache-dir -r requirements.txt
 
 # Create a non-root user and set permissions for /app
@@ -33,9 +33,6 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 
 # Set entrypoint
 ENTRYPOINT ["/app/entrypoint.sh"]
-
-# Switch to non-root user
-USER appuser
 
 # Default command
 CMD ["python", "run.py"]

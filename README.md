@@ -34,7 +34,7 @@ Scrollarr is designed to run 24/7 on a server (e.g., Raspberry Pi or VPS). It ha
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/rationalanarchist/scribdb.git
+git clone https://github.com/rationalanarchist/Scrollarr.git
 cd scrollarr
 ```
 
@@ -159,7 +159,7 @@ docker run -d \
   -v $(pwd)/library:/app/library \
   -v $(pwd)/saved_stories:/app/saved_stories \
   --restart unless-stopped \
-  ghcr.io/rationalanarchist/scribdb:latest
+  ghcr.io/rationalanarchist/Scrollarr:latest
 ```
 
 ### Option 3: Kubernetes (K3s)
@@ -205,3 +205,14 @@ python3 -m unittest discover tests
 - `alembic/`: Database migrations.
 - `config/`: Configuration files.
 - `run.py`: Entry point script.
+
+## ⚖️ License
+
+This project is licensed under the **GNU General Public License v3.0**.
+
+### What this means:
+* **Permissions:** You are free to use, modify, and distribute this software.
+* **Conditions:** If you modify this software and distribute it, you must also release your source code under the GPLv3.
+* **Warranty:** This software is provided "as is" without any warranty of any kind.
+
+For more details, see the [LICENSE](LICENSE) file included in this repository.

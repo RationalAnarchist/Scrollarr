@@ -1,11 +1,8 @@
 #!/bin/bash
 set -e
 
-# Ensure config directory exists
-if [ ! -d "/app/config" ]; then
-    echo "Creating config directory..."
-    mkdir -p /app/config
-fi
+# Ensure directories exist
+mkdir -p /app/config /app/library /app/saved_stories /app/logs
 
 # Copy alembic.ini if missing
 if [ ! -f "/app/config/alembic.ini" ]; then
@@ -37,4 +34,8 @@ if [ ! -f "/app/config/config.json" ]; then
     fi
 fi
 
-exec "$@"
+# Fix permissions
+echo "Fixing permissions..."
+chown -R appuser:appuser /app/config /app/library /app/saved_stories /app/logs
+
+exec gosu appuser "$@"

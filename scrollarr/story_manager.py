@@ -4,6 +4,8 @@ import json
 import pkgutil
 import importlib
 import inspect
+import pwd
+import stat
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session, joinedload
@@ -758,6 +760,63 @@ class StoryManager:
         finally:
             session.close()
 
+    def _log_db_diagnostics(self):
+        """
+        Logs detailed diagnostics about the database file and directory permissions
+        to help debug 'readonly database' errors.
+        """
+        try:
+            db_path = str(engine.url.database)
+            if db_path.startswith('sqlite:///'):
+                db_path = db_path.replace('sqlite:///', '')
+
+            # Resolve absolute path
+            if not os.path.isabs(db_path):
+                db_path = os.path.abspath(db_path)
+
+            logger.error(f"--- DATABASE DIAGNOSTICS for {db_path} ---")
+
+            # Check Process User
+            try:
+                uid = os.getuid()
+                gid = os.getgid()
+                user = pwd.getpwuid(uid).pw_name
+                logger.error(f"Current Process: User={user}({uid}), Group={gid}")
+            except Exception as e:
+                logger.error(f"Failed to get process user info: {e}")
+
+            # Check Database File
+            if os.path.exists(db_path):
+                try:
+                    st = os.stat(db_path)
+                    owner = pwd.getpwuid(st.st_uid).pw_name
+                    perms = oct(st.st_mode)[-3:]
+                    writable = os.access(db_path, os.W_OK)
+                    logger.error(f"DB File: Owner={owner}({st.st_uid}), Group={st.st_gid}, Perms={perms}, Writable={writable}")
+                except Exception as e:
+                    logger.error(f"Failed to stat DB file: {e}")
+            else:
+                logger.error(f"DB File does not exist at path: {db_path}")
+
+            # Check Database Directory
+            db_dir = os.path.dirname(db_path)
+            if os.path.exists(db_dir):
+                try:
+                    st = os.stat(db_dir)
+                    owner = pwd.getpwuid(st.st_uid).pw_name
+                    perms = oct(st.st_mode)[-3:]
+                    writable = os.access(db_dir, os.W_OK)
+                    logger.error(f"DB Dir: {db_dir} | Owner={owner}({st.st_uid}), Group={st.st_gid}, Perms={perms}, Writable={writable}")
+                except Exception as e:
+                    logger.error(f"Failed to stat DB directory: {e}")
+            else:
+                logger.error(f"DB Directory does not exist: {db_dir}")
+
+            logger.error("-------------------------------------------")
+
+        except Exception as e:
+            logger.error(f"Failed to run DB diagnostics: {e}")
+
     def check_story_updates(self, story_id: int):
         """
         Fetches metadata and chapter list for a single story and updates the database.
@@ -855,6 +914,8 @@ class StoryManager:
 
         except Exception as e:
             logger.error(f"Error checking updates for story {story_id}: {e}")
+            if "readonly database" in str(e) or "OperationalError" in str(e):
+                self._log_db_diagnostics()
             session.rollback()
             raise e
         finally:

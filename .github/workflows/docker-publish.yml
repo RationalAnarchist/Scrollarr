@@ -2,7 +2,7 @@ name: Docker Image CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
     tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
@@ -45,7 +45,8 @@ jobs:
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=test,enable=${{ github.ref != 'refs/heads/main' && github.ref_type == 'branch' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -55,3 +56,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

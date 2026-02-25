@@ -45,4 +45,8 @@ for db_file in /app/library.db /app/library.db-shm /app/library.db-wal; do
     fi
 done
 
+# Ensure /app directory itself is writable by appuser so SQLite can create WAL files if DB is in root
+chown appuser:appuser /app
+chmod u+w /app
+
 exec gosu appuser "$@"

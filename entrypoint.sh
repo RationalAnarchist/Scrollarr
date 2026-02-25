@@ -1,6 +1,17 @@
 #!/bin/bash
 set -e
 
+# Support custom PUID/PGID to match host permissions
+PUID=${PUID:-999}
+PGID=${PGID:-999}
+
+# Update appuser UID/GID if needed
+if [ "$(id -u appuser)" != "$PUID" ] || [ "$(id -g appuser)" != "$PGID" ]; then
+    echo "Updating appuser UID:GID to $PUID:$PGID"
+    groupmod -o -g "$PGID" appuser
+    usermod -o -u "$PUID" appuser
+fi
+
 # Ensure directories exist
 mkdir -p /app/config /app/library /app/saved_stories /app/logs
 

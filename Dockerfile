@@ -7,22 +7,19 @@ ENV PYTHONUNBUFFERED=1
 
 # Install dependencies and curl for healthcheck
 COPY requirements.txt .
-RUN apt-get update && apt-get install -y curl gosu && rm -rf /var/lib/apt/lists/* && \
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* && \
     pip install --no-cache-dir -r requirements.txt
 
-# Create a non-root user and set permissions for /app
-RUN useradd -m -r appuser && \
-    mkdir -p /app/defaults/config && \
-    chown appuser:appuser /app
+# Create app directory
+RUN mkdir -p /app/defaults/config
 
-# Copy application code with ownership
-COPY --chown=appuser:appuser . .
+# Copy application code
+COPY . .
 
-# Copy config files to defaults and fix permissions
+# Copy config files to defaults
 RUN cp config/alembic.ini /app/defaults/config/alembic.ini && \
     cp config/config.json.example /app/defaults/config/config.json.example && \
-    chmod +x /app/entrypoint.sh && \
-    chown -R appuser:appuser /app/defaults
+    chmod +x /app/entrypoint.sh
 
 # Expose port
 EXPOSE 8000

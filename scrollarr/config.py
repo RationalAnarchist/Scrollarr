@@ -167,5 +167,10 @@ class ConfigManager:
         self.config[key] = value
         self.save_config()
 
+    def update(self, updates):
+        """Updates multiple configuration values and saves to file."""
+        self.config.update(updates)
+        self.save_config()
+
 # Global instance
 config_manager = ConfigManager()

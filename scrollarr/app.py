@@ -160,21 +160,24 @@ async def setup(
     if config_manager.get("setup_complete"):
         return RedirectResponse(url="/", status_code=302)
 
-    config_manager.set("auth_method", auth_method)
+    updates = {
+        "auth_method": auth_method,
+        "setup_complete": True
+    }
 
     if auth_method in ["Basic", "Forms"]:
         if not username or not password:
              return templates.TemplateResponse("setup.html", {"request": request, "error": "Username and Password required for this method."})
-        config_manager.set("auth_username", username)
+        updates["auth_username"] = username
         # Debug logging
         logger.info(f"Hashing password: {password!r} (type: {type(password)})")
-        config_manager.set("auth_password", get_password_hash(password))
+        updates["auth_password"] = get_password_hash(password)
     else:
         # Clear credentials if None selected
-        config_manager.set("auth_username", "")
-        config_manager.set("auth_password", "")
+        updates["auth_username"] = ""
+        updates["auth_password"] = ""
 
-    config_manager.set("setup_complete", True)
+    config_manager.update(updates)
 
     # If using Forms, log the user in immediately
     if auth_method == "Forms" and username:
@@ -613,34 +616,36 @@ async def get_settings():
 async def update_settings(settings: SettingsRequest):
     """Update configuration."""
     try:
-        config_manager.set("download_path", settings.download_path)
-        config_manager.set("min_delay", settings.min_delay)
-        config_manager.set("max_delay", settings.max_delay)
-        config_manager.set("user_agent", settings.user_agent)
-        config_manager.set("update_interval_hours", settings.update_interval_hours)
-        config_manager.set("worker_sleep_min", settings.worker_sleep_min)
-        config_manager.set("worker_sleep_max", settings.worker_sleep_max)
-        config_manager.set("database_url", settings.database_url)
-        config_manager.set("log_level", settings.log_level)
-        config_manager.set("library_path", settings.library_path)
-        config_manager.set("compiled_filename_pattern", settings.compiled_filename_pattern)
-        config_manager.set("story_folder_format", settings.story_folder_format)
-        config_manager.set("chapter_file_format", settings.chapter_file_format)
-        config_manager.set("volume_folder_format", settings.volume_folder_format)
-        config_manager.set("single_chapter_name_format", settings.single_chapter_name_format)
-        config_manager.set("chapter_group_name_format", settings.chapter_group_name_format)
-        config_manager.set("volume_name_format", settings.volume_name_format)
-        config_manager.set("full_story_name_format", settings.full_story_name_format)
-
-        # Auth Settings
-        config_manager.set("auth_method", settings.auth_method)
-        config_manager.set("local_auth_disabled", settings.local_auth_disabled)
+        updates = {
+            "download_path": settings.download_path,
+            "min_delay": settings.min_delay,
+            "max_delay": settings.max_delay,
+            "user_agent": settings.user_agent,
+            "update_interval_hours": settings.update_interval_hours,
+            "worker_sleep_min": settings.worker_sleep_min,
+            "worker_sleep_max": settings.worker_sleep_max,
+            "database_url": settings.database_url,
+            "log_level": settings.log_level,
+            "library_path": settings.library_path,
+            "compiled_filename_pattern": settings.compiled_filename_pattern,
+            "story_folder_format": settings.story_folder_format,
+            "chapter_file_format": settings.chapter_file_format,
+            "volume_folder_format": settings.volume_folder_format,
+            "single_chapter_name_format": settings.single_chapter_name_format,
+            "chapter_group_name_format": settings.chapter_group_name_format,
+            "volume_name_format": settings.volume_name_format,
+            "full_story_name_format": settings.full_story_name_format,
+            "auth_method": settings.auth_method,
+            "local_auth_disabled": settings.local_auth_disabled,
+        }
 
         if settings.auth_username:
-             config_manager.set("auth_username", settings.auth_username)
+             updates["auth_username"] = settings.auth_username
 
         if settings.auth_password: # Only update if provided
-             config_manager.set("auth_password", get_password_hash(settings.auth_password))
+             updates["auth_password"] = get_password_hash(settings.auth_password)
+
+        config_manager.update(updates)
 
         # Update jobs with new settings
         if job_manager:

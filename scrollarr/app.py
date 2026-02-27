@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Optional, List, Dict
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -841,6 +841,47 @@ async def toggle_story_notifications(story_id: int, db: Session = Depends(get_db
     story.notify_on_new_chapter = not story.notify_on_new_chapter
     db.commit()
     return {"message": "Notifications updated", "notify_on_new_chapter": story.notify_on_new_chapter}
+
+@app.post("/api/story/{story_id}/verify")
+async def verify_story(story_id: int, background_tasks: BackgroundTasks):
+    """Start content verification for a story."""
+    if not story_manager:
+        raise HTTPException(status_code=500, detail="StoryManager not initialized")
+
+    background_tasks.add_task(story_manager.verify_story_content, story_id)
+    return {"message": "Verification started. You will be notified when complete."}
+
+@app.get("/api/chapter/{chapter_id}/content")
+async def get_chapter_content(chapter_id: int, db: Session = Depends(get_db)):
+    """Get the local content of a chapter."""
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
+    if not chapter.local_path or not os.path.exists(chapter.local_path):
+        raise HTTPException(status_code=404, detail="Content file not found")
+
+    try:
+        with open(chapter.local_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return HTMLResponse(content=content)
+    except Exception as e:
+        logger.error(f"Error reading chapter {chapter_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error reading file")
+
+@app.post("/api/chapter/{chapter_id}/redownload")
+async def redownload_chapter(chapter_id: int, db: Session = Depends(get_db)):
+    """Mark a chapter for re-download."""
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
+    chapter.status = 'pending'
+    # Optional: Reset local path if you want to force fresh logic,
+    # but keeping it allows overwriting the same file.
+
+    db.commit()
+    return {"message": "Chapter queued for re-download"}
 
 @app.get("/story/{story_id}", response_class=HTMLResponse)
 async def story_details(story_id: int, request: Request, db: Session = Depends(get_db)):

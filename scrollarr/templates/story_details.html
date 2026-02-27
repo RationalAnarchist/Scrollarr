@@ -103,6 +103,12 @@
                             </svg>
                             Retry Failed
                         </button>
+                        <button onclick="triggerVerify(this, {{ story.id }})" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2 shadow-md">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Verify Content
+                        </button>
                          <button onclick="openDeleteModal()" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-colors flex items-center gap-2 shadow-md">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -232,6 +238,7 @@
                                     <th class="p-3 font-semibold w-16 text-center">#</th>
                                     <th class="p-3 font-semibold w-full">Title</th>
                                     <th class="p-3 font-semibold text-right">Status</th>
+                                    <th class="p-3 font-semibold text-right w-32">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-700">
@@ -249,6 +256,7 @@
                                         {% endif %}
                                     </td>
                                     <td class="p-3 text-right">
+                                        <span id="status-badge-{{ chapter.id }}">
                                         {% if chapter.status == 'downloaded' %}
                                             <span class="bg-green-900/50 text-green-300 py-1 px-3 rounded-full text-xs font-semibold border border-green-800">Downloaded</span>
                                         {% elif chapter.status == 'pending' %}
@@ -258,6 +266,24 @@
                                         {% else %}
                                             <span class="bg-gray-700 text-gray-300 py-1 px-3 rounded-full text-xs font-semibold">{{ chapter.status }}</span>
                                         {% endif %}
+                                        </span>
+                                    </td>
+                                    <td class="p-3 text-right">
+                                        <div class="flex justify-end gap-2">
+                                            {% if chapter.status == 'downloaded' %}
+                                            <button onclick="viewChapter({{ chapter.id }}, '{{ chapter.title|escape }}')" class="text-gray-400 hover:text-white transition-colors" title="View Content">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
+                                            </button>
+                                            {% endif %}
+                                            <button onclick="redownloadChapter(this, {{ chapter.id }})" class="text-gray-400 hover:text-yellow-400 transition-colors" title="Re-download">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                </svg>
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -289,6 +315,29 @@
                     </svg>
                     Delete
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content Viewer Modal -->
+    <div id="content-modal" class="fixed inset-0 bg-black bg-opacity-90 hidden z-50 overflow-hidden flex flex-col">
+        <div class="bg-gray-900 border-b border-gray-800 p-4 flex justify-between items-center shadow-lg z-10">
+            <h3 id="modal-title" class="text-lg font-bold text-white truncate max-w-2xl">Chapter Title</h3>
+            <button onclick="closeContentModal()" class="text-gray-400 hover:text-white focus:outline-none p-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 md:p-8 bg-[#1a1a1a]">
+            <div id="modal-content" class="prose prose-invert max-w-3xl mx-auto text-gray-300 leading-relaxed">
+                <!-- Content injected here -->
+                <div class="flex justify-center items-center h-64">
+                    <svg class="animate-spin h-10 w-10 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>
             </div>
         </div>
     </div>
@@ -419,6 +468,101 @@
                 document.getElementById('action-msg').innerText = err.message;
                 btn.disabled = false;
                 btn.innerHTML = originalText;
+            }
+        }
+
+        async function triggerVerify(btn, storyId) {
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg> Verifying...`;
+            document.getElementById('action-msg').innerText = '';
+
+            try {
+                const response = await fetch(`/api/story/${storyId}/verify`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Verification failed');
+                }
+                const data = await response.json();
+
+                btn.innerHTML = `Started`;
+                document.getElementById('action-msg').innerText = data.message;
+
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }, 3000);
+
+            } catch (err) {
+                document.getElementById('action-msg').innerText = err.message;
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+
+        async function viewChapter(chapterId, title) {
+            const modal = document.getElementById('content-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const modalContent = document.getElementById('modal-content');
+
+            modalTitle.innerText = title;
+            modalContent.innerHTML = `<div class="flex justify-center items-center h-64">
+                    <svg class="animate-spin h-10 w-10 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>`;
+
+            modal.classList.remove('hidden');
+
+            try {
+                const response = await fetch(`/api/chapter/${chapterId}/content`);
+                if (!response.ok) throw new Error("Failed to load content");
+                const content = await response.text();
+                modalContent.innerHTML = content;
+            } catch (err) {
+                modalContent.innerHTML = `<div class="text-red-500 text-center p-8">Error loading content: ${err.message}</div>`;
+            }
+        }
+
+        function closeContentModal() {
+            document.getElementById('content-modal').classList.add('hidden');
+        }
+
+        async function redownloadChapter(btn, chapterId) {
+            try {
+                // Animate button
+                const originalContent = btn.innerHTML;
+                btn.innerHTML = `<svg class="animate-spin h-5 w-5 text-yellow-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>`;
+                btn.disabled = true;
+
+                const response = await fetch(`/api/chapter/${chapterId}/redownload`, { method: 'POST' });
+                if (!response.ok) throw new Error("Failed");
+
+                // Update Status Badge
+                const badge = document.getElementById(`status-badge-${chapterId}`);
+                if (badge) {
+                    badge.innerHTML = `<span class="bg-yellow-900/50 text-yellow-300 py-1 px-3 rounded-full text-xs font-semibold border border-yellow-800 animate-pulse">Pending</span>`;
+                }
+
+                // Restore button
+                setTimeout(() => {
+                    btn.innerHTML = originalContent;
+                    btn.disabled = false;
+                }, 1000);
+
+            } catch (err) {
+                alert("Failed to queue re-download");
+                btn.disabled = false;
             }
         }
 

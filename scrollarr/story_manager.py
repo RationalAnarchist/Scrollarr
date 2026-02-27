@@ -1042,6 +1042,96 @@ class StoryManager:
         finally:
             session.close()
 
+    def verify_story_content(self, story_id: int):
+        """
+        Verifies and re-downloads content for all downloaded chapters of a story.
+        """
+        session = SessionLocal()
+        try:
+            story = session.query(Story).filter(Story.id == story_id).first()
+            if not story:
+                raise ValueError(f"Story with ID {story_id} not found")
+
+            logger.info(f"Starting content verification for story '{story.title}'...")
+
+            chapters = session.query(Chapter).filter(
+                Chapter.story_id == story_id,
+                Chapter.status == 'downloaded'
+            ).all()
+
+            if not chapters:
+                logger.info("No downloaded chapters to verify.")
+                return
+
+            provider = self.source_manager.get_provider_for_url(story.source_url)
+            if not provider:
+                 raise ValueError(f"Provider not found for story URL: {story.source_url}")
+
+            stats = {
+                'verified': 0,
+                'updated': 0,
+                'failed': 0,
+                'total': len(chapters)
+            }
+
+            for chapter in chapters:
+                try:
+                    # 1. Fetch remote content
+                    remote_content = provider.get_chapter_content(chapter.source_url)
+
+                    # 2. Determine local path
+                    filepath = Path(chapter.local_path) if chapter.local_path else self.library_manager.get_chapter_absolute_path(story, chapter)
+
+                    # Ensure directory exists if path was reconstructed
+                    self.library_manager.ensure_directories(filepath.parent)
+
+                    # 3. Process images (updates content string)
+                    remote_content = self._process_chapter_images(remote_content, story, filepath)
+
+                    # 4. Compare with local content
+                    local_content = ""
+                    if filepath.exists():
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            local_content = f.read()
+
+                    # Normalize for comparison: strip whitespace
+                    # Note: _process_chapter_images uses BeautifulSoup which might normalize HTML structure.
+                    # If comparison fails frequently due to minor formatting, we might need a better diff.
+                    if remote_content.strip() != local_content.strip():
+                        logger.info(f"Content mismatch for chapter {chapter.title}. Updating...")
+                        with open(filepath, 'w', encoding='utf-8') as f:
+                            f.write(remote_content)
+                        stats['updated'] += 1
+
+                        # Update path if it was missing
+                        if not chapter.local_path:
+                            chapter.local_path = str(filepath)
+                            session.commit()
+                    else:
+                        stats['verified'] += 1
+
+                except Exception as e:
+                    logger.error(f"Failed to verify chapter {chapter.title}: {e}")
+                    stats['failed'] += 1
+
+            logger.info(f"Verification complete for '{story.title}'. Stats: {stats}")
+
+            # Notify
+            self.notification_manager.dispatch('on_verification_complete', {
+                'story_title': story.title,
+                'story_id': story.id,
+                'stats': stats,
+                'message': f"Verification complete. Verified: {stats['verified']}, Updated: {stats['updated']}, Failed: {stats['failed']}"
+            })
+
+            return stats
+
+        except Exception as e:
+            logger.error(f"Error verifying story {story_id}: {e}")
+            raise e
+        finally:
+            session.close()
+
     def get_calendar_events(self, start=None, end=None):
         """
         Returns calendar events for all stories.

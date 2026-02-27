@@ -1094,9 +1094,10 @@ class StoryManager:
                         with open(filepath, 'r', encoding='utf-8') as f:
                             local_content = f.read()
 
-                    # Normalize for comparison (optional: remove whitespace differences?)
-                    # For now, exact match
-                    if remote_content != local_content:
+                    # Normalize for comparison: strip whitespace
+                    # Note: _process_chapter_images uses BeautifulSoup which might normalize HTML structure.
+                    # If comparison fails frequently due to minor formatting, we might need a better diff.
+                    if remote_content.strip() != local_content.strip():
                         logger.info(f"Content mismatch for chapter {chapter.title}. Updating...")
                         with open(filepath, 'w', encoding='utf-8') as f:
                             f.write(remote_content)

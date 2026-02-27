@@ -104,6 +104,7 @@
                 </div>
             </div>
 
+
             <div>
                 <button id="header-system" onclick="toggleMenu('system')" class="w-full flex items-center justify-between text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2 hover:text-gray-300 focus:outline-none transition-colors">
                     <span>System</span>
@@ -112,11 +113,11 @@
                     </svg>
                 </button>
                 <div id="menu-system" class="space-y-1 {% if active_section != 'system' %}hidden{% endif %} transition-all duration-200 origin-top">
-                    <a href="/status" class="flex items-center px-2 py-2 text-sm font-medium rounded-md {% if request.url.path == '/status' %}bg-gray-800 text-white{% else %}text-gray-300 hover:bg-gray-800 hover:text-white{% endif %} group transition-colors">
+                    <a href="/api-docs" class="flex items-center px-2 py-2 text-sm font-medium rounded-md {% if request.url.path == '/api-docs' %}bg-gray-800 text-white{% else %}text-gray-300 hover:bg-gray-800 hover:text-white{% endif %} group transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-400 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                         </svg>
-                        System Status
+                        API Reference
                     </a>
                     <a href="/system/tasks" class="flex items-center px-2 py-2 text-sm font-medium rounded-md {% if request.url.path == '/system/tasks' %}bg-gray-800 text-white{% else %}text-gray-300 hover:bg-gray-800 hover:text-white{% endif %} group transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-400 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -124,11 +125,11 @@
                         </svg>
                         Tasks
                     </a>
-                    <a href="/api-docs" class="flex items-center px-2 py-2 text-sm font-medium rounded-md {% if request.url.path == '/api-docs' %}bg-gray-800 text-white{% else %}text-gray-300 hover:bg-gray-800 hover:text-white{% endif %} group transition-colors">
+                    <a href="/status" class="flex items-center px-2 py-2 text-sm font-medium rounded-md {% if request.url.path == '/status' %}bg-gray-800 text-white{% else %}text-gray-300 hover:bg-gray-800 hover:text-white{% endif %} group transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-400 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                         </svg>
-                        API Reference
+                        System Status
                     </a>
                 </div>
             </div>

@@ -145,8 +145,8 @@ async def logout(request: Request):
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
-    # If setup already complete, redirect to home (auth middleware will handle login check if needed)
-    if config_manager.get("setup_complete"):
+    # If setup already complete and auth decided, redirect to home (auth middleware will handle login check if needed)
+    if config_manager.get("setup_complete") and config_manager.get("auth_method") != "NotDecided":
         return RedirectResponse(url="/", status_code=302)
     return templates.TemplateResponse("setup.html", {"request": request})
 
@@ -157,7 +157,7 @@ async def setup(
     username: Optional[str] = Form(None),
     password: Optional[str] = Form(None)
 ):
-    if config_manager.get("setup_complete"):
+    if config_manager.get("setup_complete") and config_manager.get("auth_method") != "NotDecided":
         return RedirectResponse(url="/", status_code=302)
 
     updates = {

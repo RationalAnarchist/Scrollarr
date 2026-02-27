@@ -22,6 +22,15 @@
     {% block head %}{% endblock %}
 </head>
 <body class="flex h-screen bg-background text-text overflow-hidden">
+    <!-- Determine Active Section -->
+    {% set current_path = request.url.path %}
+    {% set active_section = 'stories' %}
+    {% if current_path.startswith('/activity') or current_path.startswith('/calendar') %}
+        {% set active_section = 'activity' %}
+    {% elif current_path.startswith('/settings') or current_path in ['/sources', '/notifications', '/profiles', '/status', '/api-docs'] %}
+        {% set active_section = 'settings' %}
+    {% endif %}
+
     <!-- Sidebar -->
     <aside id="sidebar" class="
         fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 border-r border-gray-800 transform -translate-x-full transition-transform duration-300 ease-in-out flex flex-col
@@ -38,8 +47,13 @@
         </div>
         <nav class="flex-1 overflow-y-auto px-4 space-y-6">
             <div>
-                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2">Stories</h3>
-                <div class="space-y-1">
+                <button id="header-stories" onclick="toggleMenu('stories')" class="w-full flex items-center justify-between text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2 hover:text-gray-300 focus:outline-none transition-colors">
+                    <span>Stories</span>
+                    <svg id="icon-stories" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transform transition-transform duration-200 {% if active_section == 'stories' %}rotate-90{% endif %}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
+                <div id="menu-stories" class="space-y-1 {% if active_section != 'stories' %}hidden{% endif %} transition-all duration-200 origin-top">
                     <a href="/" class="flex items-center px-2 py-2 text-sm font-medium rounded-md {% if request.url.path == '/' %}bg-gray-800 text-white{% else %}text-gray-300 hover:bg-gray-800 hover:text-white{% endif %} group transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-400 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
@@ -68,8 +82,13 @@
             </div>
 
             <div>
-                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2">Activity</h3>
-                <div class="space-y-1">
+                <button id="header-activity" onclick="toggleMenu('activity')" class="w-full flex items-center justify-between text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2 hover:text-gray-300 focus:outline-none transition-colors">
+                    <span>Activity</span>
+                    <svg id="icon-activity" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transform transition-transform duration-200 {% if active_section == 'activity' %}rotate-90{% endif %}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
+                <div id="menu-activity" class="space-y-1 {% if active_section != 'activity' %}hidden{% endif %} transition-all duration-200 origin-top">
                     <a href="/activity" class="flex items-center px-2 py-2 text-sm font-medium rounded-md {% if request.url.path == '/activity' %}bg-gray-800 text-white{% else %}text-gray-300 hover:bg-gray-800 hover:text-white{% endif %} group transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-400 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -86,8 +105,13 @@
             </div>
 
             <div>
-                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2">Settings</h3>
-                <div class="space-y-1">
+                <button id="header-settings" onclick="toggleMenu('settings')" class="w-full flex items-center justify-between text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2 hover:text-gray-300 focus:outline-none transition-colors">
+                    <span>Settings</span>
+                    <svg id="icon-settings" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transform transition-transform duration-200 {% if active_section == 'settings' %}rotate-90{% endif %}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
+                <div id="menu-settings" class="space-y-1 {% if active_section != 'settings' %}hidden{% endif %} transition-all duration-200 origin-top">
                     <a href="/settings" class="flex items-center px-2 py-2 text-sm font-medium rounded-md {% if request.url.path == '/settings' %}bg-gray-800 text-white{% else %}text-gray-300 hover:bg-gray-800 hover:text-white{% endif %} group transition-colors">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-400 group-hover:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -179,6 +203,31 @@
         if(btn) btn.addEventListener('click', toggleSidebar);
         if(closeBtn) closeBtn.addEventListener('click', toggleSidebar);
         if(overlay) overlay.addEventListener('click', toggleSidebar);
+
+        function toggleMenu(sectionId) {
+            // Get all menu sections (ids starting with 'menu-')
+            const menus = document.querySelectorAll('[id^="menu-"]');
+
+            menus.forEach(menu => {
+                const id = menu.id.replace('menu-', '');
+                const icon = document.getElementById('icon-' + id);
+
+                if (id === sectionId) {
+                    // Toggle clicked section
+                    if (menu.classList.contains('hidden')) {
+                        menu.classList.remove('hidden');
+                        if (icon) icon.classList.add('rotate-90');
+                    } else {
+                        menu.classList.add('hidden');
+                        if (icon) icon.classList.remove('rotate-90');
+                    }
+                } else {
+                    // Close other sections
+                    menu.classList.add('hidden');
+                    if (icon) icon.classList.remove('rotate-90');
+                }
+            });
+        }
     </script>
 </body>
 </html>

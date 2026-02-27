@@ -29,4 +29,24 @@ if __name__ == "__main__":
                  log_config["loggers"][logger_name]["handlers"] = []
              log_config["loggers"][logger_name]["handlers"].append("file")
 
-    uvicorn.run("scrollarr.app:app", host="0.0.0.0", port=8000, reload=True, log_config=log_config)
+    # Exclude configuration files from reloader to prevent restart loops during setup/settings save
+    # Also exclude database files and logs
+    reload_excludes = [
+        "config/*.json",
+        "config/*.tmp",
+        "*.db",
+        "*.db-journal",
+        "*.db-wal",
+        "*.db-shm",
+        "logs/*",
+        "*.log"
+    ]
+
+    uvicorn.run(
+        "scrollarr.app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_config=log_config,
+        reload_excludes=reload_excludes
+    )

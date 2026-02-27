@@ -10,7 +10,14 @@ def run():
         print("Visiting settings...")
         try:
             page.goto("http://localhost:8000/settings", timeout=10000)
-            page.wait_for_selector("text=Library Organization")
+
+            # Check for security modal and dismiss it
+            if page.is_visible("#security-modal"):
+                print("Dismissing security modal on Settings...")
+                page.click("text=No Login")
+                page.wait_for_selector("#security-modal", state="hidden")
+
+            page.wait_for_selector("h1:has-text('Settings')")
             # Scroll to show new fields
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             page.screenshot(path="verification_settings.png")
@@ -22,13 +29,19 @@ def run():
         print("Visiting dashboard...")
         try:
             page.goto("http://localhost:8000/", timeout=10000)
+            # Check for security modal and dismiss it (if not already done/persisted)
+            if page.is_visible("#security-modal"):
+                print("Dismissing security modal on Dashboard...")
+                page.click("text=No Login")
+                page.wait_for_selector("#security-modal", state="hidden")
+
             # Wait for modal
             try:
                 page.wait_for_selector("#migration-modal:not(.hidden)", timeout=5000)
-                print("Modal appeared.")
+                print("Migration Modal appeared.")
                 page.screenshot(path="verification_modal.png")
             except Exception:
-                print("Modal did not appear within timeout.")
+                print("Migration Modal did not appear within timeout.")
                 page.screenshot(path="verification_dashboard.png")
         except Exception as e:
             print(f"Error visiting dashboard: {e}")

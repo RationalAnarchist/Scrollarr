@@ -146,17 +146,27 @@ class ConfigManager:
         return config
 
     def save_config(self, config=None):
-        """Saves configuration to file."""
+        """Saves configuration to file atomically."""
         if config is None:
             config = self.config
 
+        tmp_file = f"{self.CONFIG_FILE}.tmp"
         try:
-            with open(self.CONFIG_FILE, 'w') as f:
+            with open(tmp_file, 'w') as f:
                 json.dump(config, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(tmp_file, self.CONFIG_FILE)
             self.config = config
             logger.info("Configuration saved.")
         except Exception as e:
             logger.error(f"Failed to save config file: {e}")
+            if os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except OSError:
+                    pass
 
     def get(self, key, default=None):
         """Gets a configuration value."""
@@ -165,6 +175,11 @@ class ConfigManager:
     def set(self, key, value):
         """Sets a configuration value and saves to file."""
         self.config[key] = value
+        self.save_config()
+
+    def update(self, updates):
+        """Updates multiple configuration values and saves to file."""
+        self.config.update(updates)
         self.save_config()
 
 # Global instance

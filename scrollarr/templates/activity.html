@@ -149,20 +149,33 @@
                     let statusBadge = '';
                     let actionButton = '';
 
-                    if (item.status === 'downloaded') {
-                        statusBadge = `<span class="bg-green-900/50 text-green-300 py-1 px-3 rounded-full text-xs font-semibold border border-green-800">Downloaded</span>`;
-                    } else if (item.status === 'failed') {
-                        statusBadge = `<span class="bg-red-900/50 text-red-300 py-1 px-3 rounded-full text-xs font-semibold border border-red-800" title="${item.details || 'Unknown error'}">Failed</span>`;
-                        actionButton = `<button onclick="retryChapter(${item.chapter_id})" class="text-blue-400 hover:text-blue-300 hover:underline text-sm">Retry</button>`;
+                    // Adjust badge color based on status
+                    if (item.status === 'downloaded' || item.status === 'Success') {
+                        statusBadge = `<span class="bg-green-900/50 text-green-300 py-1 px-3 rounded-full text-xs font-semibold border border-green-800">${item.status}</span>`;
+                    } else if (item.status === 'failed' || item.status === 'Failed') {
+                        statusBadge = `<span class="bg-red-900/50 text-red-300 py-1 px-3 rounded-full text-xs font-semibold border border-red-800" title="${item.details || 'Unknown error'}">${item.status}</span>`;
+                        // Only retry chapters
+                        if (item.chapter_id) {
+                            actionButton = `<button onclick="retryChapter(${item.chapter_id})" class="text-blue-400 hover:text-blue-300 hover:underline text-sm">Retry</button>`;
+                        }
                     } else {
                         statusBadge = `<span class="bg-gray-700 text-gray-300 py-1 px-3 rounded-full text-xs font-semibold">${item.status}</span>`;
+                    }
+
+                    // Add badge for event type if not standard download
+                    let eventBadge = '';
+                    if (item.event_type === 'system') {
+                        eventBadge = `<span class="ml-2 bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded text-[10px] border border-blue-800">System</span>`;
                     }
 
                     const date = new Date(item.timestamp).toLocaleString();
 
                     tr.innerHTML = `
                         <td class="p-3 text-gray-400 text-sm">${date}</td>
-                        <td class="p-3 font-medium text-gray-200">${item.story_title}</td>
+                        <td class="p-3 font-medium text-gray-200">
+                            ${item.story_title}
+                            ${eventBadge}
+                        </td>
                         <td class="p-3 text-gray-400">${item.chapter_title}</td>
                         <td class="p-3">${statusBadge}</td>
                         <td class="p-3 text-right">${actionButton}</td>

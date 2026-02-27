@@ -168,7 +168,8 @@ class FanFictionSource(BaseSource):
 
                             chapters.append({
                                 'title': clean_title,
-                                'url': chap_url
+                                'url': chap_url,
+                                'published_date': None # Will be populated if possible
                             })
                 else:
                     # Single chapter
@@ -176,8 +177,57 @@ class FanFictionSource(BaseSource):
                     if soup.select_one('#storytext'):
                         chapters.append({
                             'title': "Chapter 1",
-                            'url': url
+                            'url': url,
+                            'published_date': None
                         })
+
+                # Try to extract dates from profile_top if available
+                # Usually profile_top has "Updated: X - Published: Y"
+                profile_top = soup.select_one('#profile_top')
+                if profile_top:
+                    # Look for span[data-xutime]
+                    times = profile_top.select('span[data-xutime]')
+                    # Usually "Updated" is first (if present), then "Published" is last (or first if no updated)
+                    # Text content helps distinguish
+
+                    published_ts = None
+                    updated_ts = None
+
+                    # Iterate over spans to find context
+                    # The text immediately preceding the span usually says "Updated: " or "Published: "
+                    # But BeautifulSoup text extraction flattens it.
+                    # Let's use the full text and regex
+                    full_text = profile_top.get_text()
+
+                    # Regex to find timestamps: "Published: <span...>"
+                    # But we only have the soup.
+                    # We can iterate the spans and check previous sibling text?
+
+                    for span in times:
+                        ts = int(span.get('data-xutime', 0))
+                        prev = span.previous_sibling
+                        if prev and isinstance(prev, str):
+                            if "Published:" in prev:
+                                published_ts = ts
+                            elif "Updated:" in prev:
+                                updated_ts = ts
+
+                    if not published_ts and not updated_ts and times:
+                        # Fallback: if only 1 time, it's Published. If 2, first is Updated, second is Published?
+                        # Actually FF.net puts Updated first usually.
+                        pass
+
+                    # If we found timestamps, assign to first and last chapter
+                    # This is a heuristic because FF.net doesn't give per-chapter dates easily on desktop
+                    if chapters:
+                        if published_ts:
+                            chapters[0]['published_date'] = datetime.fromtimestamp(published_ts)
+
+                        if updated_ts and len(chapters) > 1:
+                            chapters[-1]['published_date'] = datetime.fromtimestamp(updated_ts)
+                        elif published_ts and len(chapters) == 1:
+                             # Single chapter, published date applies
+                             chapters[0]['published_date'] = datetime.fromtimestamp(published_ts)
 
                 return chapters
             finally:

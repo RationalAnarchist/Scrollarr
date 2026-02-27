@@ -158,11 +158,20 @@ class TapasSource(BaseSource):
                     page.wait_for_timeout(1000)
 
                 hrefs = page.evaluate("""() => {
-                    return Array.from(document.querySelectorAll('a.episode-list-item__link, li.episode-list-item a')).map(a => ({
-                        href: a.href,
-                        text: a.innerText,
-                        is_locked: a.querySelector('.icon-lock') !== null || a.innerText.includes('Free in')
-                    }))
+                    return Array.from(document.querySelectorAll('a.episode-list-item__link, li.episode-list-item a')).map(a => {
+                        let dateText = null;
+                        let p = a.closest('.episode-list-item') || a.parentElement;
+                        if (p) {
+                             let d = p.querySelector('.date, .created-at, .episode-date');
+                             if (d) dateText = d.innerText;
+                        }
+                        return {
+                            href: a.href,
+                            text: a.innerText,
+                            is_locked: a.querySelector('.icon-lock') !== null || a.innerText.includes('Free in'),
+                            date: dateText
+                        };
+                    })
                 }""")
 
                 chapters = []
@@ -174,6 +183,7 @@ class TapasSource(BaseSource):
                     href = link['href']
                     text = link['text']
                     is_locked = link['is_locked']
+                    date_text = link['date']
 
                     if not href:
                         continue
@@ -186,9 +196,19 @@ class TapasSource(BaseSource):
                             if is_locked:
                                 title += " [LOCKED]"
 
+                            published_date = None
+                            if date_text:
+                                try:
+                                    # Tapas format: "Jan 01, 2024"
+                                    raw = date_text.strip()
+                                    published_date = datetime.strptime(raw, "%b %d, %Y")
+                                except:
+                                    pass
+
                             chapters.append({
                                 'title': title,
-                                'url': href
+                                'url': href,
+                                'published_date': published_date
                             })
                             seen_urls.add(href)
 

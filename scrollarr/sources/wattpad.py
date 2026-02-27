@@ -124,43 +124,94 @@ class WattpadSource(BaseSource):
                 page.goto(url, wait_until="domcontentloaded")
                 page.wait_for_timeout(3000)
 
-                hrefs = page.evaluate("() => Array.from(document.querySelectorAll('a')).map(a => ({href: a.getAttribute('href'), text: a.innerText}))")
+                # Wattpad usually embeds data in window.preloaded
+                # We can try to extract parts from it.
+                # Structure: window.preloaded["story:ID"] or similar
+
+                parts_data = page.evaluate("""() => {
+                    try {
+                        // Try to find the story object in window.preloaded
+                        // Keys are unpredictable, but values might contain "parts" array
+                        if (window.preloaded) {
+                            for (const key in window.preloaded) {
+                                const val = window.preloaded[key];
+                                if (val && val.parts && Array.isArray(val.parts)) {
+                                    return val.parts.map(p => ({
+                                        id: p.id,
+                                        title: p.title,
+                                        url: p.url,
+                                        datePublished: p.createDate || p.modifyDate // createDate seems better for original publish
+                                    }));
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        return null;
+                    }
+                    return null;
+                }""")
 
                 chapters = []
                 seen_urls = set()
 
-                # Regex for Wattpad chapter links: /12345678-chapter-title
-                regex = re.compile(r'^/?(\d+)-.+$')
+                if parts_data:
+                    for part in parts_data:
+                        full_url = part['url']
+                        if not full_url.startswith('http'):
+                             full_url = f"https://www.wattpad.com{full_url}" # usually absolute but safe check
 
-                for link in hrefs:
-                    href = link['href']
-                    text = link['text']
+                        published_date = None
+                        if part.get('datePublished'):
+                            try:
+                                # ISO format usually: "2015-01-01T00:00:00Z"
+                                published_date = datetime.fromisoformat(part['datePublished'].replace('Z', '+00:00'))
+                            except:
+                                pass
 
-                    if not href:
-                        continue
-
-                    # Filter out non-chapter links
-                    if '/story/' in href or '/user/' in href or '/list/' in href or '/login' in href or 'wattpad.com' in href:
-                         # Check if it's a full URL that matches the chapter pattern
-                         match = re.search(r'wattpad\.com/(\d+)-', href)
-                         if not match:
-                             continue
-                    elif not regex.match(href):
-                        continue
-
-                    # Normalize URL
-                    full_url = href
-                    if not href.startswith('http'):
-                        if not href.startswith('/'):
-                            href = '/' + href
-                        full_url = f"https://www.wattpad.com{href}"
-
-                    if full_url not in seen_urls:
                         chapters.append({
-                            'title': text.strip() or "Untitled Chapter",
-                            'url': full_url
+                            'title': part['title'],
+                            'url': full_url,
+                            'published_date': published_date
                         })
                         seen_urls.add(full_url)
+
+                # Fallback to scraping if preloaded data extraction fails
+                if not chapters:
+                    hrefs = page.evaluate("() => Array.from(document.querySelectorAll('a')).map(a => ({href: a.getAttribute('href'), text: a.innerText}))")
+
+                    # Regex for Wattpad chapter links: /12345678-chapter-title
+                    regex = re.compile(r'^/?(\d+)-.+$')
+
+                    for link in hrefs:
+                        href = link['href']
+                        text = link['text']
+
+                        if not href:
+                            continue
+
+                        # Filter out non-chapter links
+                        if '/story/' in href or '/user/' in href or '/list/' in href or '/login' in href or 'wattpad.com' in href:
+                             # Check if it's a full URL that matches the chapter pattern
+                             match = re.search(r'wattpad\.com/(\d+)-', href)
+                             if not match:
+                                 continue
+                        elif not regex.match(href):
+                            continue
+
+                        # Normalize URL
+                        full_url = href
+                        if not href.startswith('http'):
+                            if not href.startswith('/'):
+                                href = '/' + href
+                            full_url = f"https://www.wattpad.com{href}"
+
+                        if full_url not in seen_urls:
+                            chapters.append({
+                                'title': text.strip() or "Untitled Chapter",
+                                'url': full_url,
+                                'published_date': None # Fallback has no date
+                            })
+                            seen_urls.add(full_url)
 
                 return chapters
             finally:

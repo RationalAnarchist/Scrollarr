@@ -65,9 +65,10 @@ class DownloadHistory(Base):
     __tablename__ = 'download_history'
 
     id = Column(Integer, primary_key=True)
-    chapter_id = Column(Integer, ForeignKey('chapters.id'), nullable=False)
-    story_id = Column(Integer, ForeignKey('stories.id'), nullable=False)
+    chapter_id = Column(Integer, ForeignKey('chapters.id'), nullable=True)
+    story_id = Column(Integer, ForeignKey('stories.id'), nullable=True)
     status = Column(String, nullable=False)  # 'downloaded', 'failed'
+    event_type = Column(String, default='download', server_default='download') # 'download', 'system', 'error'
     timestamp = Column(DateTime, server_default=func.now())
     details = Column(String, nullable=True)
 

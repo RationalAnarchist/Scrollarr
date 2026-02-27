@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Tasks - Scrollarr{% endblock %}
+
+{% block content %}
+    <header class="mb-8">
+        <h1 class="text-3xl font-bold">Scheduled Tasks</h1>
+    </header>
+
+    <div class="bg-gray-800 rounded-lg p-6 shadow-lg">
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-gray-400 border-b border-gray-700 text-sm uppercase tracking-wider">
+                        <th class="p-3 font-semibold">Task</th>
+                        <th class="p-3 font-semibold">Interval</th>
+                        <th class="p-3 font-semibold">Last Execution</th>
+                        <th class="p-3 font-semibold">Duration</th>
+                        <th class="p-3 font-semibold">Status</th>
+                        <th class="p-3 font-semibold">Next Execution</th>
+                        <th class="p-3 font-semibold text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tasks-body" class="divide-y divide-gray-700">
+                    <tr class="animate-pulse">
+                        <td colspan="7" class="p-4 text-center text-gray-500">Loading tasks...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        async function fetchTasks() {
+            try {
+                const response = await fetch('/api/system/tasks');
+                if (!response.ok) throw new Error('Failed to fetch tasks');
+                const data = await response.json();
+
+                const tbody = document.getElementById('tasks-body');
+                tbody.innerHTML = '';
+
+                data.forEach(task => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-gray-700/50 transition-colors';
+
+                    let statusBadge = '';
+                    if (task.status === 'Success') {
+                        statusBadge = `<span class="bg-green-900/50 text-green-300 py-1 px-3 rounded-full text-xs font-semibold border border-green-800">Success</span>`;
+                    } else if (task.status === 'Failed') {
+                        statusBadge = `<span class="bg-red-900/50 text-red-300 py-1 px-3 rounded-full text-xs font-semibold border border-red-800">Failed</span>`;
+                    } else {
+                        statusBadge = `<span class="bg-gray-700 text-gray-300 py-1 px-3 rounded-full text-xs font-semibold">${task.status}</span>`;
+                    }
+
+                    const lastRun = task.last_run !== "Never" ? new Date(task.last_run).toLocaleString() : "Never";
+                    const nextRun = task.next_run ? new Date(task.next_run).toLocaleString() : "Unknown";
+
+                    tr.innerHTML = `
+                        <td class="p-3 font-medium text-gray-200">${task.name}</td>
+                        <td class="p-3 text-gray-400">${task.interval}</td>
+                        <td class="p-3 text-gray-400 text-sm">${lastRun}</td>
+                        <td class="p-3 text-gray-400">${task.duration}</td>
+                        <td class="p-3">${statusBadge}</td>
+                        <td class="p-3 text-gray-400 text-sm">${nextRun}</td>
+                        <td class="p-3 text-right">
+                             <button onclick="runTask('${task.id}')" class="bg-blue-600 hover:bg-blue-700 text-white py-1 px-3 rounded text-xs font-semibold transition-colors">
+                                Run Now
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+            } catch (err) {
+                console.error("Tasks fetch error:", err);
+                document.getElementById('tasks-body').innerHTML = `<tr><td colspan="7" class="p-4 text-center text-red-500">Error loading tasks.</td></tr>`;
+            }
+        }
+
+        async function runTask(taskId) {
+            try {
+                const response = await fetch(`/api/system/tasks/${taskId}/run`, { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to trigger task');
+
+                // Refresh immediately
+                fetchTasks();
+                alert("Task triggered successfully.");
+            } catch (err) {
+                console.error("Task trigger error:", err);
+                alert("Failed to trigger task.");
+            }
+        }
+
+        // Initial fetch
+        fetchTasks();
+        // Poll every 5 seconds
+        setInterval(fetchTasks, 5000);
+    </script>
+{% endblock %}

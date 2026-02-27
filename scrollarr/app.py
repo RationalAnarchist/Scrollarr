@@ -397,6 +397,29 @@ async def status_page(request: Request):
     """Render the status page."""
     return templates.TemplateResponse("status.html", {"request": request})
 
+@app.get("/system/tasks", response_class=HTMLResponse)
+async def tasks_page(request: Request):
+    """Render the tasks page."""
+    return templates.TemplateResponse("tasks.html", {"request": request})
+
+@app.get("/api/system/tasks")
+async def get_system_tasks():
+    """Get system tasks status."""
+    if not job_manager:
+        raise HTTPException(status_code=500, detail="JobManager not initialized")
+    return job_manager.get_tasks()
+
+@app.post("/api/system/tasks/{task_id}/run")
+async def run_system_task(task_id: str):
+    """Trigger a system task manually."""
+    if not job_manager:
+        raise HTTPException(status_code=500, detail="JobManager not initialized")
+
+    if job_manager.trigger_task(task_id):
+        return {"message": f"Task {task_id} triggered successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="Task not found")
+
 @app.get("/api/status")
 async def get_system_status():
     """Get system status metrics."""
@@ -581,11 +604,22 @@ async def get_history(db: Session = Depends(get_db)):
 
     result = []
     for h in history:
+        # Determine display titles based on event type or missing relations
+        story_title = h.story.title if h.story else "System"
+        chapter_title = h.chapter.title if h.chapter else ""
+
+        if hasattr(h, 'event_type') and h.event_type == 'system':
+             if not h.story:
+                 story_title = "System Task"
+             if not h.chapter:
+                 chapter_title = h.details or "Task execution"
+
         result.append({
             "id": h.id,
-            "story_title": h.story.title if h.story else "Unknown Story",
-            "chapter_title": h.chapter.title if h.chapter else "Unknown Chapter",
+            "story_title": story_title,
+            "chapter_title": chapter_title,
             "status": h.status,
+            "event_type": getattr(h, 'event_type', 'download'),
             "timestamp": h.timestamp.isoformat() if h.timestamp else None,
             "details": h.details,
             "chapter_id": h.chapter_id

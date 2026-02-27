@@ -1,6 +1,7 @@
 import logging
 import time
 import os
+from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import func
 from .database import SessionLocal, Story, Chapter, DownloadHistory, init_db
@@ -19,6 +20,93 @@ class JobManager:
         self.notification_manager = NotificationManager()
         self.library_manager = LibraryManager()
         self.running = False
+        self.task_status = {} # {task_id: {last_run, duration, status, next_run}}
+
+    def _track_job(self, job_name, func):
+        """
+        Wrapper to track job execution status and log to DB.
+        """
+        def wrapper():
+            start_time = time.time()
+            status = "Success"
+            error_details = None
+
+            try:
+                # Log start
+                logger.info(f"Starting job: {job_name}")
+                func()
+            except Exception as e:
+                status = "Failed"
+                error_details = str(e)
+                logger.error(f"Job {job_name} failed: {e}")
+            finally:
+                end_time = time.time()
+                duration = end_time - start_time
+
+                # Update in-memory status
+                self.task_status[job_name] = {
+                    "last_run": datetime.now().isoformat(),
+                    "duration": f"{duration:.2f}s",
+                    "status": status,
+                    "next_run": self._get_next_run_time(job_name)
+                }
+
+                # Log to DB
+                session = SessionLocal()
+                try:
+                    history = DownloadHistory(
+                        event_type='system',
+                        status=status,
+                        details=f"Task: {job_name}. {error_details if error_details else ''}"
+                    )
+                    session.add(history)
+                    session.commit()
+                except Exception as e:
+                    logger.error(f"Failed to log task history: {e}")
+                finally:
+                    session.close()
+
+        return wrapper
+
+    def _get_next_run_time(self, job_id):
+        job = self.scheduler.get_job(job_id)
+        if job and job.next_run_time:
+             return job.next_run_time.isoformat()
+        return None
+
+    def get_tasks(self):
+        """Returns the current status of all tracked tasks."""
+        tasks = []
+        # Defined tasks and their readable names
+        defined_tasks = {
+            'check_updates': {'name': 'Check for Updates', 'interval': f"{config_manager.get('update_interval_hours', 1)} hours"},
+            'download_queue': {'name': 'Process Download Queue', 'interval': f"{config_manager.get('worker_sleep_min', 30.0)} seconds"},
+            'check_metadata': {'name': 'Check Missing Metadata', 'interval': '12 hours'}
+        }
+
+        for task_id, info in defined_tasks.items():
+            status = self.task_status.get(task_id, {})
+            # Get next run time from scheduler if not in status (e.g. before first run)
+            next_run = status.get('next_run') or self._get_next_run_time(task_id)
+
+            tasks.append({
+                "id": task_id,
+                "name": info['name'],
+                "interval": info['interval'],
+                "last_run": status.get("last_run", "Never"),
+                "duration": status.get("duration", "0s"),
+                "status": status.get("status", "Pending"),
+                "next_run": next_run
+            })
+        return tasks
+
+    def trigger_task(self, task_id):
+        """Manually triggers a task."""
+        job = self.scheduler.get_job(task_id)
+        if job:
+            job.modify(next_run_time=datetime.now())
+            return True
+        return False
 
     def start(self):
         """Starts the scheduler with configured jobs."""
@@ -30,7 +118,7 @@ class JobManager:
         # Schedule immediate run of metadata check on startup
         from datetime import datetime, timedelta
         self.scheduler.add_job(
-            self.check_missing_metadata,
+            self._track_job('check_metadata', self.check_missing_metadata),
             'date',
             run_date=datetime.now() + timedelta(seconds=10),
             id='check_metadata_startup'
@@ -38,7 +126,7 @@ class JobManager:
 
         # Schedule immediate run of updates check on startup
         self.scheduler.add_job(
-            self.check_for_updates,
+            self._track_job('check_updates', self.check_for_updates),
             'date',
             run_date=datetime.now() + timedelta(seconds=20),
             id='check_updates_startup'
@@ -75,7 +163,7 @@ class JobManager:
         update_interval = config_manager.get("update_interval_hours", 1)
         # APScheduler handles replace_existing=True gracefully
         self.scheduler.add_job(
-            self.check_for_updates,
+            self._track_job('check_updates', self.check_for_updates),
             'interval',
             hours=update_interval,
             id='check_updates',
@@ -87,7 +175,7 @@ class JobManager:
         download_interval = config_manager.get("worker_sleep_min", 30.0)
 
         self.scheduler.add_job(
-            self.process_download_queue,
+            self._track_job('download_queue', self.process_download_queue),
             'interval',
             seconds=download_interval,
             id='download_queue',
@@ -98,7 +186,7 @@ class JobManager:
         # Metadata Check Job
         # Run infrequently, e.g., every 12 hours
         self.scheduler.add_job(
-            self.check_missing_metadata,
+            self._track_job('check_metadata', self.check_missing_metadata),
             'interval',
             hours=12,
             id='check_metadata',

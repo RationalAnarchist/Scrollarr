@@ -183,10 +183,10 @@ class WebNovelSource(BaseSource):
                 # Regex for /book/(\d+)/(\d+)
 
                 for link in hrefs:
-                    href = link['href']
-                    text = link['text']
-                    is_locked = link['is_locked']
-                    time_text = link['time']
+                    href = link.get('href')
+                    text = link.get('text', '')
+                    is_locked = link.get('is_locked', False)
+                    time_text = link.get('time')
 
                     if not href:
                         continue

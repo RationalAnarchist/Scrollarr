@@ -180,10 +180,10 @@ class TapasSource(BaseSource):
                 # Expected URL structure: /series/SERIESID/episodes/EPISODEID
 
                 for link in hrefs:
-                    href = link['href']
-                    text = link['text']
-                    is_locked = link['is_locked']
-                    date_text = link['date']
+                    href = link.get('href')
+                    text = link.get('text', '')
+                    is_locked = link.get('is_locked', False)
+                    date_text = link.get('date')
 
                     if not href:
                         continue

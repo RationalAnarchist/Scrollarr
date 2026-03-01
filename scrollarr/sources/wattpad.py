@@ -156,7 +156,9 @@ class WattpadSource(BaseSource):
 
                 if parts_data:
                     for part in parts_data:
-                        full_url = part['url']
+                        full_url = part.get('url')
+                        if not full_url:
+                            continue
                         if not full_url.startswith('http'):
                              full_url = f"https://www.wattpad.com{full_url}" # usually absolute but safe check
 
@@ -169,7 +171,7 @@ class WattpadSource(BaseSource):
                                 pass
 
                         chapters.append({
-                            'title': part['title'],
+                            'title': part.get('title', 'Unknown Title'),
                             'url': full_url,
                             'published_date': published_date
                         })
@@ -183,8 +185,8 @@ class WattpadSource(BaseSource):
                     regex = re.compile(r'^/?(\d+)-.+$')
 
                     for link in hrefs:
-                        href = link['href']
-                        text = link['text']
+                        href = link.get('href')
+                        text = link.get('text', '')
 
                         if not href:
                             continue

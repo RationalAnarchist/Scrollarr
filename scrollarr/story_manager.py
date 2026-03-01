@@ -1137,6 +1137,7 @@ class StoryManager:
         Returns calendar events for all stories.
         """
         session = SessionLocal()
+        from datetime import timezone
         try:
             stories = session.query(Story).filter(Story.is_monitored == True).all()
             events = []
@@ -1148,17 +1149,23 @@ class StoryManager:
                     Chapter.published_date != None
                 ).all()
 
+                valid_dates = []
+
                 for chap in chapters:
-                    # Handle timezone-aware datetimes for SQLite to JSON serialization
                     pub_date = chap.published_date
+                    if not pub_date:
+                        continue
+
+                    # Normalize all to naive UTC to prevent mixed naive/aware comparison crashes
                     if pub_date.tzinfo is not None:
-                        # Convert to UTC naive if we want, or just format
-                        # isoformat() on aware datetime includes +00:00, which FullCalendar parses.
-                        pass
+                        # Convert to UTC and remove tzinfo
+                        pub_date = pub_date.astimezone(timezone.utc).replace(tzinfo=None)
+
+                    valid_dates.append(pub_date)
 
                     events.append({
                         'title': f"{story.title} - {chap.title}",
-                        'start': pub_date.isoformat(),
+                        'start': pub_date.isoformat() + "Z", # Append Z manually since we stripped tzinfo but know it's UTC
                         'color': '#3788d8', # Blue for past
                         'url': f"/story/{story.id}"
                     })
@@ -1172,10 +1179,7 @@ class StoryManager:
                 # Let's reimplement lightweight prediction here or rely on the other method.
                 # Since we are using SQLite with check_same_thread=False, it should be OK.
 
-                # But wait, get_story_schedule opens a session.
-                # Let's just use the current session to query chapters for prediction.
-
-                sorted_dates = sorted([c.published_date for c in chapters if c.published_date])
+                sorted_dates = sorted(valid_dates)
                 if len(sorted_dates) >= 2:
                      intervals = []
                      for i in range(1, len(sorted_dates)):
@@ -1186,7 +1190,10 @@ class StoryManager:
 
                      # Predict next 5 chapters
                      last_date = sorted_dates[-1]
-                     now = datetime.now()
+
+                     # All dates in sorted_dates are now naive (normalized to UTC)
+                     # So we use naive UTC now
+                     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
                      # Start from the last known date
                      next_prediction = last_date + timedelta(seconds=avg)
@@ -1200,7 +1207,7 @@ class StoryManager:
                      for i in range(5):
                         events.append({
                             'title': f"{story.title} - Predicted",
-                            'start': next_prediction.isoformat(),
+                            'start': next_prediction.isoformat() + "Z",
                             'color': '#28a745', # Green
                             'url': f"/story/{story.id}",
                             'allDay': True

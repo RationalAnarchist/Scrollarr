@@ -22,6 +22,8 @@ from .import_manager import ImportManager
 import uuid
 import secrets
 import base64
+import urllib.parse
+from bs4 import BeautifulSoup
 from .ebook_builder import EbookBuilder
 from .job_manager import JobManager
 from .notifications import NotificationManager
@@ -864,10 +866,55 @@ async def get_chapter_content(chapter_id: int, db: Session = Depends(get_db)):
     try:
         with open(chapter.local_path, "r", encoding="utf-8") as f:
             content = f.read()
+
+        soup = BeautifulSoup(content, 'html.parser')
+        images = soup.find_all('img')
+        modified = False
+
+        if images:
+            for img in images:
+                src = img.get('src')
+                if not src:
+                    continue
+                if not src.startswith('http') and not src.startswith('data:'):
+                    encoded_src = urllib.parse.quote(src)
+                    img['src'] = f"/api/chapter/{chapter_id}/image?src={encoded_src}"
+                    modified = True
+
+        if modified:
+            content = str(soup)
+
         return HTMLResponse(content=content)
     except Exception as e:
         logger.error(f"Error reading chapter {chapter_id}: {e}")
         raise HTTPException(status_code=500, detail="Error reading file")
+
+@app.get("/api/chapter/{chapter_id}/image")
+async def get_chapter_image(chapter_id: int, src: str, db: Session = Depends(get_db)):
+    """Serve a local image referenced in a chapter."""
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
+    if not chapter.local_path or not os.path.exists(chapter.local_path):
+        raise HTTPException(status_code=404, detail="Chapter content not found")
+
+    decoded_src = urllib.parse.unquote(src)
+
+    chapter_dir = Path(chapter.local_path).parent
+    try:
+        abs_img_path = (chapter_dir / decoded_src).resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid image path")
+
+    # Security check: ensure the image is within the library root or chapter dir
+    if not str(abs_img_path).startswith(str(LibraryManager().get_library_root().resolve())):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not abs_img_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return FileResponse(str(abs_img_path))
 
 @app.post("/api/chapter/{chapter_id}/redownload")
 async def redownload_chapter(chapter_id: int, db: Session = Depends(get_db)):

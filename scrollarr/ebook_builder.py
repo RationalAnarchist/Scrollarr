@@ -421,14 +421,16 @@ class EbookBuilder:
                     modified = False
 
                     if images:
+                        import urllib.parse
                         for img in images:
                             src = img.get('src')
                             if not src: continue
 
                             # Resolve absolute path from relative
+                            decoded_src = urllib.parse.unquote(src)
                             chapter_dir = Path(chapter.local_path).parent
                             try:
-                                abs_img_path = (chapter_dir / src).resolve()
+                                abs_img_path = (chapter_dir / decoded_src).resolve()
                             except Exception:
                                 continue
 

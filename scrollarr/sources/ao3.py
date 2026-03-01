@@ -14,6 +14,8 @@ class AO3Source(BaseSource):
 
     def __init__(self):
         self.requester = PoliteRequester()
+        # Always set view_adult cookie to bypass adult content warnings
+        self.requester.set_cookies({'view_adult': 'true'})
 
     def identify(self, url: str) -> bool:
         return 'archiveofourown.org' in url
@@ -222,6 +224,9 @@ class AO3Source(BaseSource):
                             cookies[k] = v
                 except Exception:
                     pass
+
+        # Always ensure view_adult is true, even if other cookies are provided
+        cookies['view_adult'] = 'true'
 
         if cookies:
             self.requester.set_cookies(cookies)

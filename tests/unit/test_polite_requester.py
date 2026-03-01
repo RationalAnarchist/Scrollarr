@@ -11,7 +11,7 @@ class TestPoliteRequester(unittest.TestCase):
         self.requester = PoliteRequester(delay_range=(2, 5))
 
     @patch('time.sleep')
-    @patch('requests.get')
+    @patch('requests.Session.get')
     def test_get_request_calls_requests_with_correct_headers(self, mock_get, mock_sleep):
         # Setup mock response
         mock_response = Mock()
@@ -30,7 +30,7 @@ class TestPoliteRequester(unittest.TestCase):
         self.assertIn('Accept-Language', kwargs['headers'])
 
     @patch('time.sleep')
-    @patch('requests.get')
+    @patch('requests.Session.get')
     def test_get_request_waits_random_delay(self, mock_get, mock_sleep):
         # Setup mock response
         mock_response = Mock()
@@ -48,7 +48,7 @@ class TestPoliteRequester(unittest.TestCase):
         self.assertLessEqual(delay, 5)
 
     @patch('time.sleep')
-    @patch('requests.get')
+    @patch('requests.Session.get')
     def test_get_request_raises_for_status(self, mock_get, mock_sleep):
         # Setup mock response to raise an error
         mock_response = Mock()

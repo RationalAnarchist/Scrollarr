@@ -1,6 +1,8 @@
 import time
 import random
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import Dict, Optional
 from .config import config_manager
 
@@ -30,6 +32,18 @@ class PoliteRequester:
         }
         self.cookies = {}
 
+        # Configure session with retries
+        self.session = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504, 525],
+            allowed_methods=["GET", "POST"]
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
+
     def set_cookies(self, cookies: Dict):
         """
         Sets cookies for subsequent requests.
@@ -50,6 +64,6 @@ class PoliteRequester:
         delay = random.uniform(*self.delay_range)
         time.sleep(delay)
 
-        response = requests.get(url, headers=self.headers, cookies=self.cookies, timeout=timeout)
+        response = self.session.get(url, headers=self.headers, cookies=self.cookies, timeout=timeout)
         response.raise_for_status()
         return response

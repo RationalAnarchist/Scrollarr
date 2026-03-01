@@ -106,10 +106,13 @@ class RoyalRoadSource(BaseSource):
                 if time_tag and time_tag.has_attr('datetime'):
                     try:
                         dt_str = time_tag['datetime']
-                        # Handle potential 'Z' or offset if simple fromisoformat doesn't work (Python 3.11+ handles Z usually)
-                        published_date = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
-                    except Exception:
-                        pass
+                        # Robust parsing for cross-version compatibility (e.g. Python < 3.11)
+                        # Extract the base ISO 8601 string: YYYY-MM-DDTHH:MM:SS
+                        base_dt_str = dt_str[:19]
+                        from datetime import timezone
+                        published_date = datetime.strptime(base_dt_str, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+                    except Exception as e:
+                        print(f"Failed to parse RoyalRoad date: {e}")
 
                 if link:
                     title = link.get_text(strip=True)

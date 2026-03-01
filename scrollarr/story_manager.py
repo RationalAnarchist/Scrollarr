@@ -7,7 +7,7 @@ import inspect
 import pwd
 import stat
 from typing import Optional, List, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.sql import func
 from .core_logic import SourceManager, BaseSource
@@ -1137,7 +1137,6 @@ class StoryManager:
         Returns calendar events for all stories.
         """
         session = SessionLocal()
-        from datetime import timezone
         try:
             stories = session.query(Story).filter(Story.is_monitored == True).all()
             events = []

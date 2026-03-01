@@ -1149,9 +1149,16 @@ class StoryManager:
                 ).all()
 
                 for chap in chapters:
+                    # Handle timezone-aware datetimes for SQLite to JSON serialization
+                    pub_date = chap.published_date
+                    if pub_date.tzinfo is not None:
+                        # Convert to UTC naive if we want, or just format
+                        # isoformat() on aware datetime includes +00:00, which FullCalendar parses.
+                        pass
+
                     events.append({
                         'title': f"{story.title} - {chap.title}",
-                        'start': chap.published_date.isoformat(),
+                        'start': pub_date.isoformat(),
                         'color': '#3788d8', # Blue for past
                         'url': f"/story/{story.id}"
                     })

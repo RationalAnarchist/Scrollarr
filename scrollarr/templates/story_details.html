@@ -256,17 +256,22 @@
                                         {% endif %}
                                     </td>
                                     <td class="p-3 text-right">
-                                        <span id="status-badge-{{ chapter.id }}">
-                                        {% if chapter.status == 'downloaded' %}
-                                            <span class="bg-green-900/50 text-green-300 py-1 px-3 rounded-full text-xs font-semibold border border-green-800">Downloaded</span>
-                                        {% elif chapter.status == 'pending' %}
-                                            <span class="bg-yellow-900/50 text-yellow-300 py-1 px-3 rounded-full text-xs font-semibold border border-yellow-800 animate-pulse">Pending</span>
-                                        {% elif chapter.status == 'failed' %}
-                                            <span class="bg-red-900/50 text-red-300 py-1 px-3 rounded-full text-xs font-semibold border border-red-800">Failed</span>
-                                        {% else %}
-                                            <span class="bg-gray-700 text-gray-300 py-1 px-3 rounded-full text-xs font-semibold">{{ chapter.status }}</span>
-                                        {% endif %}
-                                        </span>
+                                        <div class="flex items-center justify-end gap-3">
+                                            {% if chapter.published_date %}
+                                            <span class="text-xs text-gray-400 font-mono">{{ chapter.published_date.strftime('%Y-%m-%d') }}</span>
+                                            {% endif %}
+                                            <span id="status-badge-{{ chapter.id }}">
+                                            {% if chapter.status == 'downloaded' %}
+                                                <span class="bg-green-900/50 text-green-300 py-1 px-3 rounded-full text-xs font-semibold border border-green-800">Downloaded</span>
+                                            {% elif chapter.status == 'pending' %}
+                                                <span class="bg-yellow-900/50 text-yellow-300 py-1 px-3 rounded-full text-xs font-semibold border border-yellow-800 animate-pulse">Pending</span>
+                                            {% elif chapter.status == 'failed' %}
+                                                <span class="bg-red-900/50 text-red-300 py-1 px-3 rounded-full text-xs font-semibold border border-red-800">Failed</span>
+                                            {% else %}
+                                                <span class="bg-gray-700 text-gray-300 py-1 px-3 rounded-full text-xs font-semibold">{{ chapter.status }}</span>
+                                            {% endif %}
+                                            </span>
+                                        </div>
                                     </td>
                                     <td class="p-3 text-right">
                                         <div class="flex justify-end gap-2">

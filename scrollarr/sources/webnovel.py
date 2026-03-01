@@ -2,7 +2,7 @@ import re
 import time
 import subprocess
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from ..core_logic import BaseSource
 
@@ -151,12 +151,28 @@ class WebNovelSource(BaseSource):
                 # Ideally scroll to bottom?
                 # For now, let's grab what's visible.
 
+                # Extract links AND metadata (time)
+                # The structure usually has <small class="... time"> or similar
+                # We need to traverse up from the anchor to find time if it's separate, or inside
+
                 hrefs = page.evaluate("""() => {
-                    return Array.from(document.querySelectorAll('a')).map(a => ({
-                        href: a.href,
-                        text: a.innerText,
-                        is_locked: a.querySelector('.lock-icon') !== null || a.querySelector('svg[class*="lock"]') !== null
-                    }))
+                    return Array.from(document.querySelectorAll('a')).map(a => {
+                        let timeText = null;
+                        // Try to find time element in parent/sibling
+                        // Usually catalog list is li > a... and li > span.time
+                        let parent = a.closest('li');
+                        if (parent) {
+                            let timeEl = parent.querySelector('small, .time, .c_grey');
+                            if (timeEl) timeText = timeEl.innerText;
+                        }
+
+                        return {
+                            href: a.href,
+                            text: a.innerText,
+                            is_locked: a.querySelector('.lock-icon') !== null || a.querySelector('svg[class*="lock"]') !== null,
+                            time: timeText
+                        };
+                    })
                 }""")
 
                 chapters = []
@@ -167,9 +183,10 @@ class WebNovelSource(BaseSource):
                 # Regex for /book/(\d+)/(\d+)
 
                 for link in hrefs:
-                    href = link['href']
-                    text = link['text']
-                    is_locked = link['is_locked']
+                    href = link.get('href')
+                    text = link.get('text', '')
+                    is_locked = link.get('is_locked', False)
+                    time_text = link.get('time')
 
                     if not href:
                         continue
@@ -183,9 +200,46 @@ class WebNovelSource(BaseSource):
                                 # We might skip locked ones if we can't download them
                                 # But listing them helps user know progress
 
+                            published_date = None
+                            if time_text:
+                                try:
+                                    # Parse relative time: "2 months ago", "1 year ago", "21 mins ago"
+                                    # Or absolute: "Jan 01, 2024"
+                                    raw_date = time_text.strip()
+                                    now = datetime.now()
+
+                                    if 'ago' in raw_date:
+                                        val = int(re.search(r'\d+', raw_date).group())
+                                        if 'min' in raw_date:
+                                            published_date = now - timedelta(minutes=val)
+                                        elif 'hour' in raw_date:
+                                            published_date = now - timedelta(hours=val)
+                                        elif 'day' in raw_date:
+                                            published_date = now - timedelta(days=val)
+                                        elif 'month' in raw_date:
+                                            published_date = now - timedelta(days=val*30)
+                                        elif 'year' in raw_date:
+                                            published_date = now - timedelta(days=val*365)
+                                    else:
+                                        # Try simple formats
+                                        for fmt in ["%b %d, %Y", "%Y-%m-%d"]:
+                                            try:
+                                                published_date = datetime.strptime(raw_date, fmt)
+                                                break
+                                            except:
+                                                pass
+                                except:
+                                    pass
+
+                            if not published_date:
+                                # Try parsing text again for date-like string
+                                # Sometimes it's just "Nov 12, 2024" without "ago" logic above handling it fully if weird format
+                                pass
+
                             chapters.append({
                                 'title': title,
-                                'url': href
+                                'url': href,
+                                'published_date': published_date
                             })
                             seen_urls.add(href)
 

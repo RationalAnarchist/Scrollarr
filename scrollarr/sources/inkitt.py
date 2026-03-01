@@ -188,21 +188,59 @@ class InkittSource(BaseSource):
 
                                      chapters.append({
                                          'title': text.strip() or "Chapter",
-                                         'url': href
+                                         'url': href,
+                                         'published_date': None # No easy date in reader TOC
                                      })
                                      seen_urls.add(href)
 
                 else:
+                    # Try to extract dates from chapter list if available
+                    # Inkitt often hides dates but sometimes puts them in span.date or similar
+
                     for link in chapter_list:
                          href = link['href']
                          if not href.startswith('http'):
                              href = f"https://www.inkitt.com{href}"
 
                          title = link.get_text(strip=True)
+
+                         published_date = None
+                         # Look for sibling/parent date
+                         # Usually <li><a ...>Title</a> <span class="date">...</span></li>
+                         parent = link.find_parent('li')
+                         if parent:
+                             date_span = parent.find(class_='date')
+                             if date_span:
+                                 try:
+                                     # Inkitt date format varies, but often YYYY-MM-DD
+                                     raw_date = date_span.get_text(strip=True)
+                                     published_date = datetime.strptime(raw_date, "%Y-%m-%d")
+                                 except:
+                                     pass
+
                          chapters.append({
                              'title': title,
-                             'url': href
+                             'url': href,
+                             'published_date': published_date
                          })
+
+                # Attempt to get 'last_updated' from page metadata to at least have ONE date
+                try:
+                    # Look for schema.org data
+                    schema_script = soup.find('script', type='application/ld+json')
+
+                    # Or meta updated_time
+                    meta_updated = soup.find('meta', property='og:updated_time')
+                    if meta_updated and chapters:
+                        # Apply to last chapter as a fallback if no specific dates
+                        try:
+                            ts = meta_updated.get('content')
+                            dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                            chapters[-1]['published_date'] = dt
+                        except:
+                            pass
+                except:
+                    pass
 
                 return chapters
 

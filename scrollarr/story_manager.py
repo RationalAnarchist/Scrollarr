@@ -617,10 +617,14 @@ class StoryManager:
                 self.library_manager.ensure_directories(images_dir)
 
                 modified = False
+                import urllib.parse
                 for img in images:
                     src = img.get('src')
-                    if not src or not src.startswith('http'):
+                    if not src:
                         continue
+
+                    if not src.startswith('http'):
+                        src = urllib.parse.urljoin(story.source_url, src)
 
                     # Generate filename
                     ext = 'jpg'

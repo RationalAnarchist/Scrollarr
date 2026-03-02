@@ -620,24 +620,46 @@ class StoryManager:
                 import urllib.parse
                 for img in images:
                     src = img.get('src')
-                    if not src:
+                    data_url = img.get('data-url')
+
+                    # Check if we're dealing with an image that was already downloaded
+                    if src and (src.startswith('..') or src.startswith('images/')) or img.get('data-original-src'):
                         continue
 
-                    if not src.startswith('http'):
-                        src = urllib.parse.urljoin(story.source_url, src)
+                    # XenForo proxy bypass: prefer 'data-url' if it exists and is an absolute url.
+                    # Or extract the real image from 'proxy.php?image='
+                    download_src = None
+                    if data_url and data_url.startswith('http'):
+                        download_src = data_url
+                    elif src and 'proxy.php?image=' in src:
+                        try:
+                            parsed = urllib.parse.urlparse(src)
+                            query = urllib.parse.parse_qs(parsed.query)
+                            if 'image' in query:
+                                download_src = query['image'][0]
+                        except Exception:
+                            pass
+
+                    if not download_src and src:
+                        download_src = src
+
+                    if not download_src:
+                        continue
+
+                    if not download_src.startswith('http'):
+                        download_src = urllib.parse.urljoin(story.source_url, download_src)
 
                     # Check if we already processed this exact URL (avoid re-downloading/incrementing if same chapter has it twice, though typically not an issue)
                     # For incrementing names, we check existing files
                     ext = 'jpg'
-                    if '.' in src.split('/')[-1]:
+                    if src and '.' in src.split('/')[-1]:
                         ext_cand = src.split('/')[-1].split('.')[-1].split('?')[0]
                         if len(ext_cand) <= 4 and ext_cand.isalnum():
                             ext = ext_cand
-
-                    # Avoid re-downloading the same image if scan_story_images is run multiple times.
-                    # If the source is already local (starts with '../' or similar), or we've set 'data-original-src', skip download
-                    if src.startswith('..') or src.startswith('images/') or img.get('data-original-src'):
-                        continue
+                    elif '.' in download_src.split('/')[-1]:
+                        ext_cand = download_src.split('/')[-1].split('.')[-1].split('?')[0]
+                        if len(ext_cand) <= 4 and ext_cand.isalnum():
+                            ext = ext_cand
 
                     # To ensure an incrementing name pattern while deduplicating,
                     # we can map URLs to file names via a simple lookup or just rely on a hash in the filename.
@@ -645,7 +667,7 @@ class StoryManager:
                     # To prevent downloading the exact same image multiple times (like a separator),
                     # we'll use a prefix hash: {hash}_{index}.ext
 
-                    url_hash = hashlib.md5(src.encode()).hexdigest()[:8]
+                    url_hash = hashlib.md5(download_src.encode()).hexdigest()[:8]
                     existing_match = None
 
                     # Determine next increment number
@@ -675,25 +697,25 @@ class StoryManager:
                             # Smart download using provider's requester to bypass anti-bot protections (like Cloudflare on QQ)
                             provider = self.source_manager.get_provider_for_url(story.source_url)
                             if provider and hasattr(provider, 'requester'):
-                                img_resp = provider.requester.get(src, timeout=15)
+                                img_resp = provider.requester.get(download_src, timeout=15)
                             else:
-                                img_resp = requests.get(src, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
+                                img_resp = requests.get(download_src, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
 
                             if img_resp.status_code == 200:
                                 with open(local_img_path, 'wb') as f:
                                     f.write(img_resp.content)
                                 logger.debug(f"Downloaded image {filename}")
                             else:
-                                logger.warning(f"Failed to download image {src}: Status {img_resp.status_code} - {img_resp.text[:100]}")
+                                logger.warning(f"Failed to download image {download_src}: Status {img_resp.status_code} - {img_resp.text[:100]}")
                         except Exception as img_err:
-                            logger.warning(f"Error downloading image {src}: {img_err}")
+                            logger.warning(f"Error downloading image {download_src}: {img_err}")
 
                     if local_img_path.exists():
                         # Update src to relative path
                         try:
                             rel_path = os.path.relpath(local_img_path, chapter_path.parent)
                             # Store original src for reference/debugging/safety
-                            img['data-original-src'] = src
+                            img['data-original-src'] = src if src else download_src
                             # Ensure forward slashes for HTML
                             img['src'] = rel_path.replace(os.sep, '/')
                             modified = True

@@ -626,14 +626,47 @@ class StoryManager:
                     if not src.startswith('http'):
                         src = urllib.parse.urljoin(story.source_url, src)
 
-                    # Generate filename
+                    # Check if we already processed this exact URL (avoid re-downloading/incrementing if same chapter has it twice, though typically not an issue)
+                    # For incrementing names, we check existing files
                     ext = 'jpg'
                     if '.' in src.split('/')[-1]:
                         ext_cand = src.split('/')[-1].split('.')[-1].split('?')[0]
                         if len(ext_cand) <= 4 and ext_cand.isalnum():
                             ext = ext_cand
 
-                    filename = f"img_{story.id}_{hashlib.md5(src.encode()).hexdigest()[:10]}.{ext}"
+                    # Avoid re-downloading the same image if scan_story_images is run multiple times.
+                    # If the source is already local (starts with '../' or similar), or we've set 'data-original-src', skip download
+                    if src.startswith('..') or src.startswith('images/') or img.get('data-original-src'):
+                        continue
+
+                    # To ensure an incrementing name pattern while deduplicating,
+                    # we can map URLs to file names via a simple lookup or just rely on a hash in the filename.
+                    # The user specifically requested an "incrementing name pattern".
+                    # To prevent downloading the exact same image multiple times (like a separator),
+                    # we'll use a prefix hash: {hash}_{index}.ext
+
+                    url_hash = hashlib.md5(src.encode()).hexdigest()[:8]
+                    existing_match = None
+
+                    # Determine next increment number
+                    nums = []
+                    for f in images_dir.iterdir():
+                        if f.is_file() and f.stem.startswith("img_"):
+                            # Check if we already have this exact image hash
+                            if url_hash in f.stem:
+                                existing_match = f.name
+                            try:
+                                nums.append(int(f.stem.split('_')[-1]))
+                            except ValueError:
+                                pass
+
+                    next_num = max(nums) + 1 if nums else 1
+
+                    if existing_match:
+                        filename = existing_match
+                    else:
+                        filename = f"img_{url_hash}_{next_num}.{ext}"
+
                     local_img_path = images_dir / filename
 
                     if not local_img_path.exists():

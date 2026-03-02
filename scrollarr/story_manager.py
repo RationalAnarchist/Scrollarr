@@ -696,15 +696,37 @@ class StoryManager:
                         try:
                             # Smart download using provider's requester to bypass anti-bot protections (like Cloudflare on QQ)
                             provider = self.source_manager.get_provider_for_url(story.source_url)
+
+                            # Ensure we send headers indicating we want an image, to prevent hosts like postimg.cc from redirecting to HTML galleries.
+                            img_headers = {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                                'Sec-Fetch-Dest': 'image',
+                                'Sec-Fetch-Mode': 'no-cors',
+                                'Sec-Fetch-Site': 'cross-site',
+                                'Referer': story.source_url
+                            }
+
                             if provider and hasattr(provider, 'requester'):
-                                img_resp = provider.requester.get(download_src, timeout=15)
+                                # PoliteRequester's .get() uses its own default headers. We access the underlying session to override them.
+                                img_resp = provider.requester.session.get(
+                                    download_src,
+                                    headers=img_headers,
+                                    cookies=provider.requester.cookies,
+                                    timeout=15
+                                )
                             else:
-                                img_resp = requests.get(download_src, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
+                                img_resp = requests.get(download_src, timeout=15, headers=img_headers)
 
                             if img_resp.status_code == 200:
-                                with open(local_img_path, 'wb') as f:
-                                    f.write(img_resp.content)
-                                logger.debug(f"Downloaded image {filename}")
+                                # Quick check to ensure it's not a generic HTML page pretending to be an image (e.g. host redirect)
+                                content_type = img_resp.headers.get('Content-Type', '')
+                                if 'text/html' in content_type:
+                                    logger.warning(f"Failed to download image {download_src}: Host returned an HTML page instead of an image.")
+                                else:
+                                    with open(local_img_path, 'wb') as f:
+                                        f.write(img_resp.content)
+                                    logger.debug(f"Downloaded image {filename}")
                             else:
                                 logger.warning(f"Failed to download image {download_src}: Status {img_resp.status_code} - {img_resp.text[:100]}")
                         except Exception as img_err:
@@ -719,6 +741,7 @@ class StoryManager:
                             # Ensure forward slashes for HTML
                             img['src'] = rel_path.replace(os.sep, '/')
                             modified = True
+                            logger.debug(f"Rewrote HTML img src to {img['src']}")
                         except ValueError:
                             pass
 

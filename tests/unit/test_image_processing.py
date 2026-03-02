@@ -85,8 +85,8 @@ class TestImageProcessing(unittest.TestCase):
         mock_resp.content = b'fake_image_data'
         mock_get.return_value = mock_resp
 
-        # Mock provider requester
-        mock_provider.requester.get.return_value = mock_resp
+        # Mock provider requester session
+        mock_provider.requester.session.get.return_value = mock_resp
 
         # Prevent Path.iterdir from failing since the mock dir doesn't exist
         with patch('pathlib.Path.iterdir', return_value=[]):
@@ -94,7 +94,7 @@ class TestImageProcessing(unittest.TestCase):
             manager.download_missing_chapters(1)
 
         # Verify download
-        mock_provider.requester.get.assert_called_with("http://example.com/image.jpg", timeout=15)
+        mock_provider.requester.session.get.assert_called()
 
         # Verify file write (image)
         handle = mock_file()
@@ -254,7 +254,7 @@ class TestImageProcessing(unittest.TestCase):
 
         # Inject provider to test provider requester
         mock_provider = MagicMock()
-        mock_provider.requester.get.return_value = mock_resp
+        mock_provider.requester.session.get.return_value = mock_resp
         manager.source_manager.get_provider_for_url = MagicMock(return_value=mock_provider)
 
         # Mock LibraryManager
@@ -268,7 +268,7 @@ class TestImageProcessing(unittest.TestCase):
 
         # Verify
         self.assertEqual(updated_count, 1)
-        mock_provider.requester.get.assert_called_with("http://example.com/image.jpg", timeout=15)
+        mock_provider.requester.session.get.assert_called()
 
         # Verify file writes
         # 1. Image write

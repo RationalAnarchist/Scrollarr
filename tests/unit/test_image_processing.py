@@ -85,13 +85,16 @@ class TestImageProcessing(unittest.TestCase):
         mock_resp.content = b'fake_image_data'
         mock_get.return_value = mock_resp
 
+        # Mock provider requester
+        mock_provider.requester.get.return_value = mock_resp
+
         # Prevent Path.iterdir from failing since the mock dir doesn't exist
         with patch('pathlib.Path.iterdir', return_value=[]):
             # Run
             manager.download_missing_chapters(1)
 
         # Verify download
-        mock_get.assert_called_with("http://example.com/image.jpg", timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        mock_provider.requester.get.assert_called_with("http://example.com/image.jpg", timeout=15)
 
         # Verify file write (image)
         handle = mock_file()
@@ -249,6 +252,11 @@ class TestImageProcessing(unittest.TestCase):
         mock_resp.content = b'image_data'
         mock_get.return_value = mock_resp
 
+        # Inject provider to test provider requester
+        mock_provider = MagicMock()
+        mock_provider.requester.get.return_value = mock_resp
+        manager.source_manager.get_provider_for_url = MagicMock(return_value=mock_provider)
+
         # Mock LibraryManager
         images_dir = Path("/tmp/lib/Test Story/images")
         manager.library_manager.get_images_dir = MagicMock(return_value=images_dir)
@@ -260,7 +268,7 @@ class TestImageProcessing(unittest.TestCase):
 
         # Verify
         self.assertEqual(updated_count, 1)
-        mock_get.assert_called_with("http://example.com/image.jpg", timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        mock_provider.requester.get.assert_called_with("http://example.com/image.jpg", timeout=15)
 
         # Verify file writes
         # 1. Image write

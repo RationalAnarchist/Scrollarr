@@ -672,14 +672,19 @@ class StoryManager:
 
                     if not local_img_path.exists():
                         try:
-                            # Simple download
-                            img_resp = requests.get(src, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+                            # Smart download using provider's requester to bypass anti-bot protections (like Cloudflare on QQ)
+                            provider = self.source_manager.get_provider_for_url(story.source_url)
+                            if provider and hasattr(provider, 'requester'):
+                                img_resp = provider.requester.get(src, timeout=15)
+                            else:
+                                img_resp = requests.get(src, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
+
                             if img_resp.status_code == 200:
                                 with open(local_img_path, 'wb') as f:
                                     f.write(img_resp.content)
                                 logger.debug(f"Downloaded image {filename}")
                             else:
-                                logger.warning(f"Failed to download image {src}: Status {img_resp.status_code}")
+                                logger.warning(f"Failed to download image {src}: Status {img_resp.status_code} - {img_resp.text[:100]}")
                         except Exception as img_err:
                             logger.warning(f"Error downloading image {src}: {img_err}")
 

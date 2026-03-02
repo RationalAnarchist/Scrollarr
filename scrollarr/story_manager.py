@@ -650,15 +650,16 @@ class StoryManager:
 
                     # Determine next increment number
                     nums = []
-                    for f in images_dir.iterdir():
-                        if f.is_file() and f.stem.startswith("img_"):
-                            # Check if we already have this exact image hash
-                            if url_hash in f.stem:
-                                existing_match = f.name
-                            try:
-                                nums.append(int(f.stem.split('_')[-1]))
-                            except ValueError:
-                                pass
+                    if images_dir.exists():
+                        for f in images_dir.iterdir():
+                            if f.is_file() and f.stem.startswith("img_"):
+                                # Check if we already have this exact image hash
+                                if url_hash in f.stem:
+                                    existing_match = f.name
+                                try:
+                                    nums.append(int(f.stem.split('_')[-1]))
+                                except ValueError:
+                                    pass
 
                     next_num = max(nums) + 1 if nums else 1
 

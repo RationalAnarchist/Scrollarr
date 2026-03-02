@@ -73,10 +73,11 @@ class TestImageProcessing(unittest.TestCase):
 
         # Mock exists:
         # Logic:
-        # 1. `local_img_path.exists()` check 1 (should be False to trigger download)
-        # 2. `local_img_path.exists()` check 2 (should be True to trigger update)
+        # 1. `images_dir.exists()` check -> True
+        # 2. `local_img_path.exists()` check 1 (should be False to trigger download)
+        # 3. `local_img_path.exists()` check 2 (should be True to trigger update)
         # We use side_effect on the mock_exists instance
-        mock_exists.side_effect = [False, True]
+        mock_exists.side_effect = [True, False, True]
 
         # Mock requests
         mock_resp = MagicMock()
@@ -84,8 +85,10 @@ class TestImageProcessing(unittest.TestCase):
         mock_resp.content = b'fake_image_data'
         mock_get.return_value = mock_resp
 
-        # Run
-        manager.download_missing_chapters(1)
+        # Prevent Path.iterdir from failing since the mock dir doesn't exist
+        with patch('pathlib.Path.iterdir', return_value=[]):
+            # Run
+            manager.download_missing_chapters(1)
 
         # Verify download
         mock_get.assert_called_with("http://example.com/image.jpg", timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
@@ -235,9 +238,10 @@ class TestImageProcessing(unittest.TestCase):
         mock_os_exists.return_value = True
 
         # Mock Path.exists logic for image
-        # 1. Image does NOT exist (triggers download)
-        # 2. Image DOES exist (triggers HTML update)
-        mock_path_exists.side_effect = [False, True]
+        # 1. `images_dir.exists()` check -> True
+        # 2. `local_img_path.exists()` check 1 (should be False to trigger download)
+        # 3. `local_img_path.exists()` check 2 (should be True to trigger update)
+        mock_path_exists.side_effect = [True, False, True]
 
         # Mock requests
         mock_resp = MagicMock()
@@ -249,8 +253,10 @@ class TestImageProcessing(unittest.TestCase):
         images_dir = Path("/tmp/lib/Test Story/images")
         manager.library_manager.get_images_dir = MagicMock(return_value=images_dir)
 
-        # Run
-        updated_count = manager.scan_story_images(1)
+        # Prevent Path.iterdir from failing since the mock dir doesn't exist
+        with patch('pathlib.Path.iterdir', return_value=[]):
+            # Run
+            updated_count = manager.scan_story_images(1)
 
         # Verify
         self.assertEqual(updated_count, 1)

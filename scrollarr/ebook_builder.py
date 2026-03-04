@@ -2,6 +2,7 @@ import os
 import shutil
 from ebooklib import epub
 from typing import List, Dict, Optional
+import urllib.parse
 from bs4 import BeautifulSoup
 import re
 from pathlib import Path
@@ -424,6 +425,8 @@ class EbookBuilder:
                         for img in images:
                             src = img.get('src')
                             if not src: continue
+
+                            src = urllib.parse.unquote(src)
 
                             # Resolve absolute path from relative
                             chapter_dir = Path(chapter.local_path).parent

@@ -864,10 +864,78 @@ async def get_chapter_content(chapter_id: int, db: Session = Depends(get_db)):
     try:
         with open(chapter.local_path, "r", encoding="utf-8") as f:
             content = f.read()
+
+        # Parse HTML and rewrite image src for web viewer
+        import urllib.parse
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(content, 'html.parser')
+        images = soup.find_all('img')
+        modified = False
+        if images:
+            for img in images:
+                src = img.get('src')
+                if not src: continue
+                # if it's a relative path (not starting with http or data:), it's a local file
+                if not src.startswith(('http://', 'https://', 'data:')):
+                    encoded_src = urllib.parse.quote(src)
+                    img['src'] = f"/api/chapter/{chapter.id}/image?path={encoded_src}"
+                    modified = True
+
+            if modified:
+                content = str(soup)
+
         return HTMLResponse(content=content)
     except Exception as e:
         logger.error(f"Error reading chapter {chapter_id}: {e}")
         raise HTTPException(status_code=500, detail="Error reading file")
+
+@app.get("/api/chapter/{chapter_id}/image")
+async def get_chapter_image(chapter_id: int, path: str, db: Session = Depends(get_db)):
+    """Serve local images for a chapter."""
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+
+    if not chapter.local_path:
+        raise HTTPException(status_code=404, detail="Chapter content missing")
+
+    try:
+        import urllib.parse
+        from pathlib import Path
+
+        decoded_path = urllib.parse.unquote(path)
+        chapter_dir = Path(chapter.local_path).parent
+
+        # Resolve path
+        image_path = (chapter_dir / decoded_path).resolve()
+
+        # Prevent directory traversal by making sure the file is inside the story folder
+        lm = LibraryManager()
+        story = chapter.story
+        if not story:
+             raise HTTPException(status_code=404, detail="Story missing")
+
+        story_dir = lm.get_story_path(story).resolve()
+
+        # Check if the image path starts with the story dir path
+        if not str(image_path).startswith(str(story_dir)):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        if not image_path.exists() or not image_path.is_file():
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        # Determine MIME type roughly from extension
+        ext = image_path.suffix.lower()
+        mime_type = "image/jpeg"
+        if ext == ".png": mime_type = "image/png"
+        elif ext == ".gif": mime_type = "image/gif"
+        elif ext == ".webp": mime_type = "image/webp"
+
+        return FileResponse(path=image_path, media_type=mime_type)
+
+    except Exception as e:
+        logger.error(f"Error serving image for chapter {chapter_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error serving image")
 
 @app.post("/api/chapter/{chapter_id}/redownload")
 async def redownload_chapter(chapter_id: int, db: Session = Depends(get_db)):

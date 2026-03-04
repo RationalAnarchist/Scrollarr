@@ -296,6 +296,9 @@ class JobManager:
                     filepath = self.library_manager.get_chapter_absolute_path(story, chapter)
                     self.library_manager.ensure_directories(filepath.parent)
 
+                    # Process images
+                    content = self.story_manager._process_chapter_images(content, story, filepath)
+
                     # Write file to disk
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write(content)

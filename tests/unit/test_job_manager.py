@@ -124,11 +124,13 @@ class TestJobManager(unittest.TestCase):
 
         mock_provider.get_chapter_content.return_value = "<html>Content</html>"
 
+        jm.story_manager._process_chapter_images.return_value = "<html>Content with processed images</html>"
+
         jm.process_download_queue()
 
         mock_provider.get_chapter_content.assert_called_with("http://example.com/ch1")
         mock_file.assert_called()
-        mock_file().write.assert_called_with("<html>Content</html>")
+        mock_file().write.assert_called_with("<html>Content with processed images</html>")
 
         updated_chapter = self.session.query(Chapter).filter(Chapter.id == chapter.id).first()
         self.assertEqual(updated_chapter.status, 'downloaded')

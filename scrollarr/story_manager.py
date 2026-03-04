@@ -21,6 +21,7 @@ import glob
 from pathlib import Path
 import hashlib
 import requests
+import urllib.parse
 from bs4 import BeautifulSoup
 
 # Configure logging
@@ -619,7 +620,26 @@ class StoryManager:
                 modified = False
                 for img in images:
                     src = img.get('src')
-                    if not src or not src.startswith('http'):
+                    if not src:
+                        continue
+
+                    # Handle lazy-loaded or proxied images
+                    data_url = img.get('data-url')
+                    if data_url and data_url.startswith('http'):
+                        src = data_url
+                    elif 'proxy' in src:
+                        parsed_src = urllib.parse.urlparse(src)
+                        query_params = urllib.parse.parse_qs(parsed_src.query)
+                        if 'image' in query_params:
+                            extracted_src = query_params['image'][0]
+                            if extracted_src.startswith('http'):
+                                src = extracted_src
+
+                    # Check if src is absolute URL, otherwise try to make it absolute
+                    if not src.startswith('http'):
+                        src = urllib.parse.urljoin(story.source_url, src)
+
+                    if not src.startswith('http'):
                         continue
 
                     # Generate filename

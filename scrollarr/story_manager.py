@@ -23,6 +23,8 @@ import hashlib
 import requests
 import urllib.parse
 from bs4 import BeautifulSoup
+import ebooklib
+from ebooklib import epub
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1234,5 +1236,117 @@ class StoryManager:
                         next_prediction += timedelta(seconds=avg)
 
             return events
+        finally:
+            session.close()
+
+    def import_discord_epub(self, story_id: int, epub_path: str, original_filename: str):
+        """
+        Imports an EPUB downloaded from Discord as a new chapter.
+        Extracts HTML content and creates a new Chapter record.
+        Avoids duplicates by checking original_filename against existing chapter titles.
+        """
+        session = SessionLocal()
+        try:
+            story = session.query(Story).filter(Story.id == story_id).first()
+            if not story:
+                logger.error(f"Story {story_id} not found for Discord import.")
+                return False
+
+            # Remove .epub extension for the chapter title
+            chapter_title = original_filename
+            if chapter_title.lower().endswith('.epub'):
+                chapter_title = chapter_title[:-5]
+
+            # Check if chapter with this title already exists to avoid duplicates
+            existing_chapter = session.query(Chapter).filter(
+                Chapter.story_id == story_id,
+                (Chapter.title == chapter_title) | (Chapter.title == original_filename)
+            ).first()
+
+            if existing_chapter:
+                logger.info(f"Chapter '{chapter_title}' already exists for story '{story.title}'. Skipping.")
+                return False
+
+            # Read EPUB content
+            try:
+                book = epub.read_epub(epub_path)
+            except Exception as e:
+                logger.error(f"Failed to read EPUB {epub_path}: {e}")
+                return False
+
+            # Extract HTML content
+            content = ""
+            for item in book.get_items():
+                if item.get_type() == ebooklib.ITEM_DOCUMENT:
+                    # Append content
+                    # Note: We wrap it in a div or basic html structure just in case
+                    content += item.get_content().decode('utf-8', errors='ignore')
+
+            if not content.strip():
+                logger.warning(f"No document content found in EPUB: {original_filename}")
+                return False
+
+            # Create new chapter record
+            # We use filename as the chapter title
+            index = len(story.chapters) + 1 if story.chapters else 1
+
+            # Note: We provide a pseudo source_url since it's required by the model
+            new_chapter = Chapter(
+                title=chapter_title,
+                source_url=f"discord://{story.discord_channel_id}/{original_filename}",
+                story_id=story.id,
+                index=index,
+                status='downloaded',
+                is_downloaded=True,
+                published_date=func.now()
+            )
+
+            session.add(new_chapter)
+            session.flush() # Get the new chapter ID
+
+            # Save the content to the local file system
+            filepath = self.library_manager.get_chapter_absolute_path(story, new_chapter)
+            self.library_manager.ensure_directories(filepath.parent)
+
+            # Process any images that might have been inline (though we probably need to extract them from EPUB too)
+            # For simplicity now, we just save the raw HTML extracted.
+            # A full implementation might extract images from the EPUB and re-link them.
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            new_chapter.local_path = str(filepath)
+
+            # Add to history
+            history = DownloadHistory(
+                chapter_id=new_chapter.id,
+                story_id=story.id,
+                status='downloaded',
+                details=f"Imported from Discord attachment: {original_filename}"
+            )
+            session.add(history)
+
+            story.last_updated = func.now()
+            story.last_checked = func.now()
+
+            session.commit()
+            logger.info(f"Successfully imported Discord EPUB '{original_filename}' for story '{story.title}'")
+
+            # Save metadata
+            self.save_metadata(story)
+
+            # Notify user
+            self.notification_manager.dispatch('on_new_chapters', {
+                'story_title': story.title,
+                'new_chapters_count': 1,
+                'story_id': story.id
+            })
+
+            return True
+
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error importing Discord EPUB for story {story_id}: {e}")
+            return False
         finally:
             session.close()

@@ -9,7 +9,7 @@ class TestApiDocs(unittest.TestCase):
 
         # Override config to disable auth
         self.original_config = config_manager.config.copy()
-        config_manager.config['local_auth_disabled'] = True
+        config_manager.config['auth_method'] = 'None'
         config_manager.config['setup_complete'] = True
 
     def tearDown(self):

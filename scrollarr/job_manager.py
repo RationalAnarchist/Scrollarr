@@ -9,6 +9,7 @@ from .story_manager import StoryManager
 from .notifications import NotificationManager
 from .config import config_manager
 from .library_manager import LibraryManager
+from .discord_integration import fetch_discord_epub_metadata, download_discord_epub
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -81,7 +82,8 @@ class JobManager:
         defined_tasks = {
             'check_updates': {'name': 'Check for Updates', 'interval': f"{config_manager.get('update_interval_hours', 1)} hours"},
             'download_queue': {'name': 'Process Download Queue', 'interval': f"{config_manager.get('worker_sleep_min', 30.0)} seconds"},
-            'check_metadata': {'name': 'Check Missing Metadata', 'interval': '12 hours'}
+            'check_metadata': {'name': 'Check Missing Metadata', 'interval': '12 hours'},
+            'check_discord': {'name': 'Check Discord for Updates', 'interval': f"{config_manager.get('discord_check_interval_hours', 1)} hours"}
         }
 
         for task_id, info in defined_tasks.items():
@@ -131,6 +133,15 @@ class JobManager:
             run_date=datetime.now() + timedelta(seconds=20),
             id='check_updates_startup'
         )
+
+        # Schedule immediate run of Discord check on startup
+        if config_manager.get('discord_token'):
+            self.scheduler.add_job(
+                self._track_job('check_discord', self.check_discord_updates),
+                'date',
+                run_date=datetime.now() + timedelta(seconds=30),
+                id='check_discord_startup'
+            )
 
         logger.info("JobManager started.")
 
@@ -193,7 +204,24 @@ class JobManager:
             replace_existing=True
         )
 
-        logger.info(f"Jobs updated: check_updates (every {update_interval}h), download_queue (every {download_interval}s), check_metadata (every 12h)")
+        # Discord Check Job
+        discord_token = config_manager.get('discord_token')
+        if discord_token:
+            discord_interval = config_manager.get('discord_check_interval_hours', 1)
+            self.scheduler.add_job(
+                self._track_job('check_discord', self.check_discord_updates),
+                'interval',
+                hours=discord_interval,
+                id='check_discord',
+                replace_existing=True
+            )
+            logger.info(f"Jobs updated: check_updates (every {update_interval}h), download_queue (every {download_interval}s), check_metadata (every 12h), check_discord (every {discord_interval}h)")
+        else:
+            # Remove job if token was removed
+            if self.scheduler.get_job('check_discord'):
+                self.scheduler.remove_job('check_discord')
+            logger.info(f"Jobs updated: check_updates (every {update_interval}h), download_queue (every {download_interval}s), check_metadata (every 12h)")
+
         for job in self.scheduler.get_jobs():
             logger.info(f"Scheduled job: {job}")
 
@@ -230,6 +258,105 @@ class JobManager:
                 self.story_manager.check_story_updates(story_id)
             except Exception as e:
                 logger.error(f"Error updating story {story_id}: {e}")
+
+    def check_discord_updates(self):
+        """
+        Checks configured Discord channels for new EPUB attachments
+        and adds them as chapters to the corresponding stories.
+        """
+        token = config_manager.get('discord_token')
+        if not token:
+            logger.info("Discord token not configured. Skipping Discord check.")
+            return
+
+        logger.info("Checking Discord for updates...")
+        session = SessionLocal()
+
+        try:
+            # Get monitored stories that have a discord channel set
+            stories = session.query(Story).filter(
+                Story.is_monitored == True,
+                Story.discord_channel_id != None,
+                Story.discord_channel_id != ""
+            ).all()
+
+            # Group stories by channel ID to minimize API calls
+            channels_to_stories = {}
+            for story in stories:
+                channel_id = story.discord_channel_id
+                if channel_id not in channels_to_stories:
+                    channels_to_stories[channel_id] = []
+                channels_to_stories[channel_id].append(story)
+        except Exception as e:
+            logger.error(f"Error fetching Discord-monitored stories: {e}")
+            return
+        finally:
+            session.close()
+
+        for channel_id, channel_stories in channels_to_stories.items():
+            if not self.running:
+                logger.info("Stopping Discord check due to shutdown signal.")
+                break
+
+            try:
+                logger.info(f"Fetching recent messages for Discord channel {channel_id}")
+                recent_epubs = fetch_discord_epub_metadata(channel_id, token)
+
+                if not recent_epubs:
+                    logger.debug(f"No new EPUBs found in channel {channel_id}")
+                    continue
+
+                for epub_info in recent_epubs:
+                    filename = epub_info['filename']
+                    # Use filename without extension as the chapter title to match traditional sources better,
+                    # or keep it as filename. The standard is to compare based on what the source provides.
+                    # We'll pass the filename, but story manager will check duplicates.
+
+                    # 1. Determine which stories need this EPUB
+                    stories_needing_epub = []
+                    session = SessionLocal()
+                    try:
+                        for story in channel_stories:
+                            # Re-fetch story to get current chapters
+                            db_story = session.query(Story).filter(Story.id == story.id).first()
+                            if not db_story: continue
+
+                            # Check for duplicates. Strip .epub for checking against traditional sources which usually
+                            # don't have .epub in the chapter title.
+                            clean_title = filename
+                            if clean_title.lower().endswith('.epub'):
+                                clean_title = clean_title[:-5]
+
+                            existing = next((c for c in db_story.chapters if c.title == clean_title or c.title == filename), None)
+                            if not existing:
+                                stories_needing_epub.append(db_story)
+                    finally:
+                        session.close()
+
+                    # 2. Download ONCE if at least one story needs it
+                    if stories_needing_epub:
+                        logger.info(f"EPUB '{filename}' is new for {len(stories_needing_epub)} stories. Downloading...")
+                        downloaded_path = None
+                        try:
+                            downloaded_path = download_discord_epub(epub_info['url'], filename)
+
+                            # 3. Import into each story
+                            for db_story in stories_needing_epub:
+                                logger.info(f"Importing {filename} into story '{db_story.title}'")
+                                self.story_manager.import_discord_epub(db_story.id, downloaded_path, filename)
+
+                        except Exception as e:
+                            logger.error(f"Failed to download or import {filename}: {e}")
+                        finally:
+                            # 4. Cleanup the temporary file ONCE after all imports are done
+                            if downloaded_path and os.path.exists(downloaded_path):
+                                try:
+                                    os.remove(downloaded_path)
+                                    logger.debug(f"Cleaned up temporary file {downloaded_path}")
+                                except Exception as e:
+                                    logger.warning(f"Failed to clean up {downloaded_path}: {e}")
+            except Exception as e:
+                logger.error(f"Error processing Discord channel {channel_id}: {e}")
 
     def process_download_queue(self):
         """

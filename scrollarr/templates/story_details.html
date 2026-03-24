@@ -47,6 +47,21 @@
                     </div>
                 </div>
 
+                <!-- Discord Settings -->
+                <div class="mb-6 bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                    <h3 class="text-sm font-semibold text-gray-300 mb-2">Discord Integration</h3>
+                    <div class="flex flex-col md:flex-row gap-4 items-end">
+                        <div class="flex-1">
+                            <label class="block text-gray-400 uppercase text-xs font-semibold mb-1" for="discord-channel">Channel ID</label>
+                            <input type="text" id="discord-channel" value="{{ story.discord_channel_id or '' }}" class="w-full bg-gray-700 text-white text-sm rounded p-2 border border-gray-600 focus:outline-none focus:border-blue-500" placeholder="e.g. 123456789012345678">
+                        </div>
+                        <button onclick="saveDiscordChannel({{ story.id }})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors shadow-md h-9">
+                            Save Channel
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Set a Discord Channel ID to automatically import .epub files posted there as chapters.</p>
+                </div>
+
                 <!-- Stats -->
                 <div class="grid grid-cols-4 gap-4 mb-6 text-sm bg-gray-900/50 p-4 rounded-lg border border-gray-700">
                     <div>
@@ -358,6 +373,39 @@
         function closeDeleteModal() {
             document.getElementById('delete-modal').classList.add('hidden');
             document.getElementById('delete-modal').classList.remove('flex');
+        }
+
+        async function saveDiscordChannel(storyId) {
+            const channelId = document.getElementById('discord-channel').value.trim();
+            const btn = document.querySelector('button[onclick="saveDiscordChannel(' + storyId + ')"]');
+            const originalText = btn.innerHTML;
+
+            try {
+                btn.innerHTML = 'Saving...';
+                btn.disabled = true;
+
+                const response = await fetch(`/api/story/${storyId}/discord`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ discord_channel_id: channelId || null })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Failed to update Discord channel');
+                }
+
+                btn.innerHTML = 'Saved!';
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }, 2000);
+            } catch (err) {
+                console.error(err);
+                alert('Error updating Discord channel: ' + err.message);
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
         }
 
         async function confirmDelete(storyId) {

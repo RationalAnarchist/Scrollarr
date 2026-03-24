@@ -373,7 +373,7 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
     sources_enabled_count = db.query(Source).filter(Source.is_enabled == True).count()
     auth_method = config_manager.get("auth_method", "None")
 
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request=request, name="index.html", context={
         "request": request,
         "stories": stories_with_progress,
         "sources_enabled_count": sources_enabled_count,
@@ -1038,7 +1038,7 @@ async def story_details(story_id: int, request: Request, db: Session = Depends(g
     ).count()
     has_email_notifications = email_targets_count > 0
 
-    return templates.TemplateResponse("story_details.html", {
+    return templates.TemplateResponse(request=request, name="story_details.html", context={
         "request": request,
         "story": story,
         "chapters": chapters,

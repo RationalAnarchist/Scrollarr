@@ -34,6 +34,7 @@ class Story(Base):
     provider_name = Column(String, nullable=True)
     notify_on_new_chapter = Column(Boolean, default=True)
     discord_channel_id = Column(String, nullable=True)
+    discord_channel_name = Column(String, nullable=True)
 
     chapters = relationship("Chapter", back_populates="story", cascade="all, delete-orphan")
     profile = relationship("EbookProfile")

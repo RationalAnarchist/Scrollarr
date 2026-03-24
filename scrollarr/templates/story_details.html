@@ -52,14 +52,14 @@
                     <h3 class="text-sm font-semibold text-gray-300 mb-2">Discord Integration</h3>
                     <div class="flex flex-col md:flex-row gap-4 items-end">
                         <div class="flex-1">
-                            <label class="block text-gray-400 uppercase text-xs font-semibold mb-1" for="discord-channel">Channel ID</label>
-                            <input type="text" id="discord-channel" value="{{ story.discord_channel_id or '' }}" class="w-full bg-gray-700 text-white text-sm rounded p-2 border border-gray-600 focus:outline-none focus:border-blue-500" placeholder="e.g. 123456789012345678">
+                            <label class="block text-gray-400 uppercase text-xs font-semibold mb-1" for="discord-channel">Channel Name</label>
+                            <input type="text" id="discord-channel" value="{{ story.discord_channel_name or '' }}" class="w-full bg-gray-700 text-white text-sm rounded p-2 border border-gray-600 focus:outline-none focus:border-blue-500" placeholder="e.g. storyupdates">
                         </div>
-                        <button onclick="saveDiscordChannel({{ story.id }})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors shadow-md h-9">
+                        <button onclick="saveDiscordChannel({{ story.id }})" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm transition-colors shadow-md h-9 flex-shrink-0">
                             Save Channel
                         </button>
                     </div>
-                    <p class="text-xs text-gray-500 mt-2">Set a Discord Channel ID to automatically import .epub files posted there as chapters.</p>
+                    <p class="text-xs text-gray-500 mt-2">Set a Discord Channel Name to automatically import .epub files posted there as chapters. The backend will look up the channel ID using your configured bot token.</p>
                 </div>
 
                 <!-- Stats -->
@@ -376,18 +376,18 @@
         }
 
         async function saveDiscordChannel(storyId) {
-            const channelId = document.getElementById('discord-channel').value.trim();
+            const channelName = document.getElementById('discord-channel').value.trim();
             const btn = document.querySelector('button[onclick="saveDiscordChannel(' + storyId + ')"]');
             const originalText = btn.innerHTML;
 
             try {
-                btn.innerHTML = 'Saving...';
+                btn.innerHTML = 'Looking up...';
                 btn.disabled = true;
 
                 const response = await fetch(`/api/story/${storyId}/discord`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ discord_channel_id: channelId || null })
+                    body: JSON.stringify({ discord_channel_name: channelName || null })
                 });
 
                 if (!response.ok) {

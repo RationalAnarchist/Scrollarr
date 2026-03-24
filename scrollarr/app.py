@@ -28,6 +28,7 @@ from .notifications import NotificationManager
 from .config import config_manager
 from .logger import setup_logging
 from .auth import is_local_ip, verify_api_key, verify_password, get_password_hash
+from .discord_integration import lookup_discord_channel_id
 
 # Configure logging
 setup_logging(log_level=config_manager.get('log_level'), log_file='logs/scrollarr.log')
@@ -842,18 +843,34 @@ async def delete_story(story_id: int, delete_content: bool = False):
         raise HTTPException(status_code=500, detail=str(e))
 
 class StoryDiscordRequest(BaseModel):
-    discord_channel_id: Optional[str] = None
+    discord_channel_name: Optional[str] = None
 
 @app.post("/api/story/{story_id}/discord")
 async def set_story_discord(story_id: int, request: StoryDiscordRequest, db: Session = Depends(get_db)):
-    """Set the Discord channel ID for a story."""
+    """Set the Discord channel name and lookup ID for a story."""
     story = db.query(Story).filter(Story.id == story_id).first()
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
 
-    story.discord_channel_id = request.discord_channel_id
+    token = config_manager.get('discord_token')
+    if not token:
+        raise HTTPException(status_code=400, detail="Discord Bot Token is not configured in Settings.")
+
+    if not request.discord_channel_name:
+        story.discord_channel_name = None
+        story.discord_channel_id = None
+        db.commit()
+        return {"message": "Discord channel removed"}
+
+    # Look up the ID
+    channel_id = lookup_discord_channel_id(request.discord_channel_name, token)
+    if not channel_id:
+        raise HTTPException(status_code=404, detail=f"Could not find a Discord channel named '{request.discord_channel_name}'")
+
+    story.discord_channel_name = request.discord_channel_name
+    story.discord_channel_id = channel_id
     db.commit()
-    return {"message": "Discord channel updated", "discord_channel_id": story.discord_channel_id}
+    return {"message": "Discord channel found and updated", "discord_channel_name": story.discord_channel_name}
 
 @app.post("/api/story/{story_id}/toggle-notifications")
 async def toggle_story_notifications(story_id: int, db: Session = Depends(get_db)):

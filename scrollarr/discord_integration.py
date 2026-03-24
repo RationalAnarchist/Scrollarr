@@ -7,6 +7,50 @@ from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
+def lookup_discord_channel_id(channel_name: str, token: str) -> str:
+    """
+    Looks up a Discord channel ID given its name by checking all guilds the bot is in.
+    Returns the channel ID as a string, or None if not found.
+    """
+    headers = {"Authorization": f"Bot {token}"}
+
+    # Clean up channel name (Discord channel names are lowercase, no spaces usually, but we'll just exact match or lower match)
+    search_name = channel_name.strip().lower()
+    if search_name.startswith('#'):
+        search_name = search_name[1:]
+
+    try:
+        # 1. Get guilds the bot is in
+        guilds_url = "https://discord.com/api/v10/users/@me/guilds"
+        guilds_resp = requests.get(guilds_url, headers=headers, timeout=10)
+        guilds_resp.raise_for_status()
+        guilds = guilds_resp.json()
+
+        # 2. Iterate through guilds and get channels
+        for guild in guilds:
+            guild_id = guild['id']
+            channels_url = f"https://discord.com/api/v10/guilds/{guild_id}/channels"
+            channels_resp = requests.get(channels_url, headers=headers, timeout=10)
+
+            if channels_resp.status_code != 200:
+                logger.warning(f"Failed to get channels for guild {guild_id}: {channels_resp.status_code}")
+                continue
+
+            channels = channels_resp.json()
+            for channel in channels:
+                # Check for text channels (type 0) or announcement channels (type 5)
+                # and matching name
+                if channel.get('type') in [0, 5] and channel.get('name', '').lower() == search_name:
+                    logger.info(f"Found Discord channel ID {channel['id']} for name '{channel_name}'")
+                    return str(channel['id'])
+
+        logger.warning(f"Could not find a Discord channel named '{channel_name}'")
+        return None
+
+    except Exception as e:
+        logger.error(f"Error looking up Discord channel ID for '{channel_name}': {e}")
+        return None
+
 def fetch_discord_epub_metadata(channel_id: str, token: str, after_message_id: str = None) -> List[Dict]:
     """
     Fetches recent messages from a Discord channel using the REST API

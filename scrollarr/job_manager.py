@@ -21,6 +21,7 @@ class JobManager:
         self.library_manager = LibraryManager()
         self.running = False
         self.task_status = {} # {task_id: {last_run, duration, status, next_run}}
+        self._is_checking_updates = False
 
     def _track_job(self, job_name, func):
         """
@@ -167,6 +168,8 @@ class JobManager:
             'interval',
             hours=update_interval,
             id='check_updates',
+            max_instances=1,
+            coalesce=True,
             replace_existing=True
         )
 
@@ -190,6 +193,8 @@ class JobManager:
             'interval',
             hours=12,
             id='check_metadata',
+            max_instances=1,
+            coalesce=True,
             replace_existing=True
         )
 
@@ -209,27 +214,35 @@ class JobManager:
         Checks for updates for all monitored stories.
         Fetches the latest chapter list and adds new chapters to the database.
         """
-        logger.info("Checking for updates...")
-        session = SessionLocal()
+        if self._is_checking_updates:
+            logger.info("Skipping update check: already running.")
+            return
 
+        self._is_checking_updates = True
         try:
-            # Only get IDs to close session early and avoid holding it during network requests
-            monitored_story_ids = [s.id for s in session.query(Story).filter(Story.is_monitored == True).all()]
-        except Exception as e:
-            logger.error(f"Error fetching monitored stories: {e}")
-            monitored_story_ids = []
-        finally:
-            session.close()
-
-        for story_id in monitored_story_ids:
-            if not self.running:
-                logger.info("Stopping update check due to shutdown signal.")
-                break
+            logger.info("Checking for updates...")
+            session = SessionLocal()
 
             try:
-                self.story_manager.check_story_updates(story_id)
+                # Only get IDs to close session early and avoid holding it during network requests
+                monitored_story_ids = [s.id for s in session.query(Story).filter(Story.is_monitored == True).all()]
             except Exception as e:
-                logger.error(f"Error updating story {story_id}: {e}")
+                logger.error(f"Error fetching monitored stories: {e}")
+                monitored_story_ids = []
+            finally:
+                session.close()
+
+            for story_id in monitored_story_ids:
+                if not self.running:
+                    logger.info("Stopping update check due to shutdown signal.")
+                    break
+
+                try:
+                    self.story_manager.check_story_updates(story_id)
+                except Exception as e:
+                    logger.error(f"Error updating story {story_id}: {e}")
+        finally:
+            self._is_checking_updates = False
 
     def process_download_queue(self):
         """

@@ -257,8 +257,14 @@ class KemonoSource(BaseSource):
                 # 3. Fetch Main Posts
                 offset = 0
                 has_more = True
+                visited_offsets = set()
 
                 while has_more:
+                    if offset in visited_offsets:
+                        print(f"Detected infinite loop, stopping pagination at offset {offset}")
+                        break
+                    visited_offsets.add(offset)
+
                     print(f"Fetching posts offset {offset}...")
                     posts = self._get_api_data(page, f"/api/v1/{service}/user/{user_id}/posts?o={offset}")
 

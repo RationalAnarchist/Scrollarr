@@ -59,6 +59,17 @@
                  <label for="local-auth-required" class="ml-2 text-sm font-medium text-gray-300">Authentication required for Local Addresses</label>
             </div>
 
+            <h2 class="text-xl font-bold mb-4 text-gray-200 mt-8">Discord Integration</h2>
+            <div class="mb-4">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="discord-token">Discord Bot Token</label>
+                <input type="password" id="discord-token" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors" placeholder="Leave blank to keep existing">
+                <p class="text-xs text-gray-500 mt-2">Required to monitor Discord channels for new chapters.</p>
+            </div>
+            <div class="mb-6">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="discord-interval">Discord Check Interval (hours)</label>
+                <input type="number" id="discord-interval" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+            </div>
+
             <h2 class="text-xl font-bold mb-4 text-gray-200 mt-8">Network & Politeness</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
@@ -145,6 +156,12 @@
                 // Password is not filled for security
                 document.getElementById('local-auth-required').checked = !fullSettings.local_auth_disabled;
 
+                // Discord
+                document.getElementById('discord-interval').value = fullSettings.discord_check_interval_hours || 1;
+                if (fullSettings.discord_token) {
+                    document.getElementById('discord-token').value = fullSettings.discord_token;
+                }
+
                 toggleAuthSettings();
 
             } catch (err) {
@@ -183,6 +200,13 @@
                 fullSettings.auth_password = "";
             }
             fullSettings.local_auth_disabled = !document.getElementById('local-auth-required').checked;
+
+            // Discord
+            fullSettings.discord_check_interval_hours = parseInt(document.getElementById('discord-interval').value);
+            const discordToken = document.getElementById('discord-token').value;
+            if (discordToken && discordToken !== '********') {
+                fullSettings.discord_token = discordToken;
+            }
 
             try {
                 const response = await fetch('/api/settings', {

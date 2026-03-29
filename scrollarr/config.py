@@ -38,7 +38,11 @@ class ConfigManager:
         "api_key": "",
         "session_secret": "",
         "local_auth_disabled": False,
-        "setup_complete": False
+        "setup_complete": False,
+
+        # Discord
+        "discord_token": "",
+        "discord_check_interval_hours": 1
     }
 
     def __new__(cls):

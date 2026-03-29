@@ -117,7 +117,7 @@ async def auth_middleware(request: Request, call_next):
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="login.html", context={"request": request})
 
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
@@ -130,13 +130,13 @@ async def login(request: Request, username: str = Form(...), password: str = For
     hashed_password = config_manager.get("auth_password")
 
     if not expected_username or not hashed_password:
-        return templates.TemplateResponse("login.html", {"request": request, "error": "Authentication not configured correctly."})
+        return templates.TemplateResponse(request=request, name="login.html", context={"request": request, "error": "Authentication not configured correctly."})
 
     if secrets.compare_digest(username, expected_username) and verify_password(password, hashed_password):
         request.session["user"] = username
         return RedirectResponse(url="/", status_code=302)
 
-    return templates.TemplateResponse("login.html", {"request": request, "error": "Invalid credentials"})
+    return templates.TemplateResponse(request=request, name="login.html", context={"request": request, "error": "Invalid credentials"})
 
 @app.get("/logout")
 async def logout(request: Request):
@@ -148,7 +148,7 @@ async def setup_page(request: Request):
     # If setup already complete and auth decided, redirect to home (auth middleware will handle login check if needed)
     if config_manager.get("setup_complete") and config_manager.get("auth_method") != "NotDecided":
         return RedirectResponse(url="/", status_code=302)
-    return templates.TemplateResponse("setup.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="setup.html", context={"request": request})
 
 @app.post("/setup")
 async def setup(
@@ -167,7 +167,7 @@ async def setup(
 
     if auth_method in ["Basic", "Forms"]:
         if not username or not password:
-             return templates.TemplateResponse("setup.html", {"request": request, "error": "Username and Password required for this method."})
+             return templates.TemplateResponse(request=request, name="setup.html", context={"request": request, "error": "Username and Password required for this method."})
         updates["auth_username"] = username
         # Debug logging
         logger.info(f"Hashing password: {password!r} (type: {type(password)})")
@@ -369,7 +369,7 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
     sources_enabled_count = db.query(Source).filter(Source.is_enabled == True).count()
     auth_method = config_manager.get("auth_method", "None")
 
-    return templates.TemplateResponse("index.html", {
+    return templates.TemplateResponse(request=request, name="index.html", context={
         "request": request,
         "stories": stories_with_progress,
         "sources_enabled_count": sources_enabled_count,
@@ -380,27 +380,27 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
 async def add_new_page(request: Request, db: Session = Depends(get_db)):
     """Render the add new story page."""
     sources_enabled_count = db.query(Source).filter(Source.is_enabled == True).count()
-    return templates.TemplateResponse("add_new.html", {"request": request, "sources_enabled_count": sources_enabled_count})
+    return templates.TemplateResponse(request=request, name="add_new.html", context={"request": request, "sources_enabled_count": sources_enabled_count})
 
 @app.get("/activity", response_class=HTMLResponse)
 async def activity_page(request: Request):
     """Render the activity page."""
-    return templates.TemplateResponse("activity.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="activity.html", context={"request": request})
 
 @app.get("/calendar", response_class=HTMLResponse)
 async def calendar_page(request: Request):
     """Render the release calendar page."""
-    return templates.TemplateResponse("calendar.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="calendar.html", context={"request": request})
 
 @app.get("/status", response_class=HTMLResponse)
 async def status_page(request: Request):
     """Render the status page."""
-    return templates.TemplateResponse("status.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="status.html", context={"request": request})
 
 @app.get("/system/tasks", response_class=HTMLResponse)
 async def tasks_page(request: Request):
     """Render the tasks page."""
-    return templates.TemplateResponse("tasks.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="tasks.html", context={"request": request})
 
 @app.get("/api/system/tasks")
 async def get_system_tasks():
@@ -513,37 +513,37 @@ async def get_calendar_events(response: Response, start: Optional[str] = None, e
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """Render the settings page."""
-    return templates.TemplateResponse("settings.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="settings.html", context={"request": request})
 
 @app.get("/settings/naming", response_class=HTMLResponse)
 async def naming_settings_page(request: Request):
     """Render the naming settings page."""
-    return templates.TemplateResponse("naming_settings.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="naming_settings.html", context={"request": request})
 
 @app.get("/api-docs", response_class=HTMLResponse)
 async def api_docs_page(request: Request):
     """Render the API documentation page."""
-    return templates.TemplateResponse("api_docs.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="api_docs.html", context={"request": request})
 
 @app.get("/sources", response_class=HTMLResponse)
 async def sources_page(request: Request):
     """Render the sources page."""
-    return templates.TemplateResponse("sources.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="sources.html", context={"request": request})
 
 @app.get("/notifications", response_class=HTMLResponse)
 async def notifications_page(request: Request):
     """Render the notifications page."""
-    return templates.TemplateResponse("notifications.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="notifications.html", context={"request": request})
 
 @app.get("/profiles", response_class=HTMLResponse)
 async def profiles_page(request: Request):
     """Render the profiles page."""
-    return templates.TemplateResponse("profiles.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="profiles.html", context={"request": request})
 
 @app.get("/search", response_class=HTMLResponse)
 async def search_page(request: Request):
     """Render the search page."""
-    return templates.TemplateResponse("search.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="search.html", context={"request": request})
 
 @app.get("/api/search")
 def search_stories(query: str, provider: Optional[str] = None):
@@ -1014,7 +1014,7 @@ async def story_details(story_id: int, request: Request, db: Session = Depends(g
     ).count()
     has_email_notifications = email_targets_count > 0
 
-    return templates.TemplateResponse("story_details.html", {
+    return templates.TemplateResponse(request=request, name="story_details.html", context={
         "request": request,
         "story": story,
         "chapters": chapters,
@@ -1465,7 +1465,7 @@ async def test_notification(request: TestNotificationRequest):
 @app.get("/import", response_class=HTMLResponse)
 async def import_page(request: Request):
     """Render the import page."""
-    return templates.TemplateResponse("import.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="import.html", context={"request": request})
 
 class ScanRequest(BaseModel):
     path: str

@@ -133,7 +133,13 @@ class QuestionableQuestingAllPostsSource(QuestionableQuestingSource):
             # If no last chapter, we start from beginning
             found_sync_point = True
 
+        visited_urls = set()
+
         while next_url:
+            if next_url in visited_urls:
+                break
+            visited_urls.add(next_url)
+
             response = self.requester.get(next_url)
             soup = BeautifulSoup(response.text, 'html.parser')
 

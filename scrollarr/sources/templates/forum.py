@@ -113,8 +113,13 @@ class XenForoSource(BaseSource):
 
         chapters = []
         current_page = start_page
+        visited_urls = set()
 
         while next_url:
+            if next_url in visited_urls:
+                break
+            visited_urls.add(next_url)
+
             response = self.requester.get(next_url)
             soup = BeautifulSoup(response.text, 'html.parser')
 

@@ -120,7 +120,13 @@ class ScribbleHubSource(BaseSource):
 
             try:
                 current_url = url
+                visited_urls = set()
+
                 while True:
+                    if current_url in visited_urls:
+                        break
+                    visited_urls.add(current_url)
+
                     # Navigate to current page
                     page.goto(current_url, wait_until="domcontentloaded")
 

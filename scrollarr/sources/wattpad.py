@@ -233,9 +233,15 @@ class WattpadSource(BaseSource):
             page = browser.new_page()
             full_content = []
             current_url = chapter_url
+            visited_urls = set()
 
             try:
                 while True:
+                    if current_url in visited_urls:
+                        print(f"Detected infinite loop, stopping pagination at {current_url}")
+                        break
+                    visited_urls.add(current_url)
+
                     print(f"Scraping chapter page: {current_url}")
                     page.goto(current_url, wait_until="domcontentloaded")
                     page.wait_for_timeout(2000)

@@ -82,7 +82,8 @@ class JobManager:
         defined_tasks = {
             'check_updates': {'name': 'Check for Updates', 'interval': f"{config_manager.get('update_interval_hours', 1)} hours"},
             'download_queue': {'name': 'Process Download Queue', 'interval': f"{config_manager.get('worker_sleep_min', 30.0)} seconds"},
-            'check_metadata': {'name': 'Check Missing Metadata', 'interval': '12 hours'}
+            'check_metadata': {'name': 'Check Missing Metadata', 'interval': '12 hours'},
+            'database_backup': {'name': 'Database Backup', 'interval': '1 week'}
         }
 
         for task_id, info in defined_tasks.items():
@@ -198,9 +199,33 @@ class JobManager:
             replace_existing=True
         )
 
-        logger.info(f"Jobs updated: check_updates (every {update_interval}h), download_queue (every {download_interval}s), check_metadata (every 12h)")
+        # Database Backup Job
+        # Run once a week
+        self.scheduler.add_job(
+            self._track_job('database_backup', self.create_database_backup),
+            'interval',
+            weeks=1,
+            id='database_backup',
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True
+        )
+
+        logger.info(f"Jobs updated: check_updates (every {update_interval}h), download_queue (every {download_interval}s), check_metadata (every 12h), database_backup (every 1w)")
         for job in self.scheduler.get_jobs():
             logger.info(f"Scheduled job: {job}")
+
+    def create_database_backup(self):
+        """
+        Creates a scheduled database backup.
+        """
+        logger.info("Running scheduled database backup...")
+        from .app import backup_manager
+        if backup_manager:
+            try:
+                backup_manager.create_backup()
+            except Exception as e:
+                logger.error(f"Failed to create scheduled database backup: {e}")
 
     def check_missing_metadata(self):
         """

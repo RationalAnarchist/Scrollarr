@@ -221,6 +221,14 @@ except Exception as e:
     logger.error(f"Failed to initialize ImportManager: {e}")
     import_manager = None
 
+# Initialize BackupManager
+try:
+    from .backup_manager import BackupManager
+    backup_manager = BackupManager()
+except Exception as e:
+    logger.error(f"Failed to initialize BackupManager: {e}")
+    backup_manager = None
+
 # Dependency for DB Session
 def get_db():
     db = SessionLocal()
@@ -401,6 +409,64 @@ async def status_page(request: Request):
 async def tasks_page(request: Request):
     """Render the tasks page."""
     return templates.TemplateResponse(request=request, name="tasks.html", context={"request": request})
+
+@app.get("/system/backups", response_class=HTMLResponse)
+async def backups_page(request: Request):
+    """Render the backups page."""
+    return templates.TemplateResponse(request=request, name="backups.html", context={"request": request})
+
+@app.get("/api/system/backups")
+async def get_system_backups():
+    """Get list of database backups."""
+    if not backup_manager:
+        raise HTTPException(status_code=500, detail="BackupManager not initialized")
+    try:
+        return backup_manager.list_backups()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/backups/create")
+async def create_system_backup():
+    """Create a new database backup."""
+    if not backup_manager:
+        raise HTTPException(status_code=500, detail="BackupManager not initialized")
+    try:
+        filename = backup_manager.create_backup()
+        return {"message": "Backup created successfully", "filename": filename}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/system/backups/{filename}/restore")
+async def restore_system_backup(filename: str):
+    """Restore database from backup."""
+    if not backup_manager:
+        raise HTTPException(status_code=500, detail="BackupManager not initialized")
+    try:
+        if job_manager:
+            job_manager.pause()
+        backup_manager.restore_backup(filename)
+        if job_manager:
+            job_manager.resume()
+        return {"message": f"Restored backup {filename}"}
+    except FileNotFoundError:
+         raise HTTPException(status_code=404, detail="Backup file not found")
+    except Exception as e:
+        if job_manager:
+             job_manager.resume()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/system/backups/{filename}")
+async def delete_system_backup(filename: str):
+    """Delete a database backup."""
+    if not backup_manager:
+        raise HTTPException(status_code=500, detail="BackupManager not initialized")
+    try:
+        if backup_manager.delete_backup(filename):
+            return {"message": f"Deleted backup {filename}"}
+        else:
+            raise HTTPException(status_code=404, detail="Backup file not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/system/tasks")
 async def get_system_tasks():

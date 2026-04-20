@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}System Backups - Scrollarr{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-6">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-3xl font-bold tracking-tight text-white">System Backups</h2>
+        <button onclick="createBackup()" id="btn-create-backup" class="px-4 py-2 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors">
+            Create Backup
+        </button>
+    </div>
+
+    <!-- Error Banner -->
+    <div id="error-banner" class="hidden bg-red-900 border border-red-800 text-white px-4 py-3 rounded relative mb-4" role="alert">
+        <strong class="font-bold">Error!</strong>
+        <span class="block sm:inline" id="error-message"></span>
+    </div>
+
+    <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden shadow-sm">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-800">
+                <thead class="bg-gray-800">
+                    <tr>
+                        <th scope="col" class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Filename</th>
+                        <th scope="col" class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Created At</th>
+                        <th scope="col" class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Size</th>
+                        <th scope="col" class="px-6 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="backups-table-body" class="bg-gray-900 divide-y divide-gray-800">
+                    <tr id="loading-row">
+                        <td colspan="4" class="px-6 py-8 text-center text-gray-500">
+                            Loading backups...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function formatBytes(bytes, decimals = 2) {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
+    function formatDate(isoString) {
+        const d = new Date(isoString);
+        return d.toLocaleString();
+    }
+
+    function showError(msg) {
+        const banner = document.getElementById('error-banner');
+        document.getElementById('error-message').textContent = msg;
+        banner.classList.remove('hidden');
+        setTimeout(() => { banner.classList.add('hidden'); }, 5000);
+    }
+
+    async function loadBackups() {
+        try {
+            const response = await fetch('/api/system/backups');
+            if (!response.ok) throw new Error('Failed to fetch backups');
+            const data = await response.json();
+            
+            const tbody = document.getElementById('backups-table-body');
+            tbody.innerHTML = '';
+            
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-gray-500">No backups available</td></tr>`;
+                return;
+            }
+            
+            data.forEach(backup => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-800 transition-colors duration-150 group';
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">
+                        ${backup.filename}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                        ${formatDate(backup.created_at)}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                        ${formatBytes(backup.size)}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button onclick="restoreBackup('${backup.filename}')" class="text-blue-400 hover:text-blue-300 mr-4 transition-colors">Restore</button>
+                        <button onclick="deleteBackup('${backup.filename}')" class="text-red-400 hover:text-red-300 transition-colors">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+        } catch (e) {
+            document.getElementById('backups-table-body').innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-red-500">Error loading backups</td></tr>`;
+            showError(e.message);
+        }
+    }
+
+    async function createBackup() {
+        const btn = document.getElementById('btn-create-backup');
+        btn.disabled = true;
+        btn.textContent = 'Creating...';
+        
+        try {
+            const response = await fetch('/api/system/backups/create', { method: 'POST' });
+            if (!response.ok) {
+                const res = await response.json();
+                throw new Error(res.detail || 'Failed to create backup');
+            }
+            await loadBackups();
+        } catch (e) {
+            showError(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Create Backup';
+        }
+    }
+
+    async function restoreBackup(filename) {
+        if (!confirm(`Are you sure you want to restore the database to ${filename}? Current data will be overwritten and you may be logged out.`)) return;
+        
+        try {
+            const response = await fetch(`/api/system/backups/${filename}/restore`, { method: 'POST' });
+            if (!response.ok) {
+                const res = await response.json();
+                throw new Error(res.detail || 'Failed to restore backup');
+            }
+            alert('Database restored successfully! The page will now reload.');
+            window.location.reload();
+        } catch (e) {
+            showError(e.message);
+        }
+    }
+
+    async function deleteBackup(filename) {
+        if (!confirm(`Are you sure you want to delete ${filename}?`)) return;
+        
+        try {
+            const response = await fetch(`/api/system/backups/${filename}`, { method: 'DELETE' });
+            if (!response.ok) {
+                const res = await response.json();
+                throw new Error(res.detail || 'Failed to delete backup');
+            }
+            await loadBackups();
+        } catch (e) {
+            showError(e.message);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadBackups);
+</script>
+{% endblock %}

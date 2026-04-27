@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Log Files - Scrollarr{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-6">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-3xl font-bold tracking-tight text-white">Log Files</h2>
+        <button onclick="loadLogFiles()" id="btn-refresh" class="px-4 py-2 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+        </button>
+    </div>
+
+    <!-- Error Banner -->
+    <div id="error-banner" class="hidden bg-red-900 border border-red-800 text-white px-4 py-3 rounded relative mb-4" role="alert">
+        <strong class="font-bold">Error!</strong>
+        <span class="block sm:inline" id="error-message"></span>
+    </div>
+
+    <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden shadow-sm">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-800">
+                <thead class="bg-gray-800">
+                    <tr>
+                        <th scope="col" class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Filename</th>
+                        <th scope="col" class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Modified At</th>
+                        <th scope="col" class="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Size</th>
+                        <th scope="col" class="px-6 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="logs-table-body" class="bg-gray-900 divide-y divide-gray-800">
+                    <tr id="loading-row">
+                        <td colspan="4" class="px-6 py-8 text-center text-gray-500">
+                            Loading log files...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function formatBytes(bytes, decimals = 2) {
+        if (!+bytes) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    }
+
+    function formatDate(isoString) {
+        const d = new Date(isoString);
+        return d.toLocaleString();
+    }
+
+    function showError(msg) {
+        const banner = document.getElementById('error-banner');
+        document.getElementById('error-message').textContent = msg;
+        banner.classList.remove('hidden');
+        setTimeout(() => { banner.classList.add('hidden'); }, 5000);
+    }
+
+    async function loadLogFiles() {
+        const btn = document.getElementById('btn-refresh');
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/system/logs');
+            if (!response.ok) throw new Error('Failed to fetch log files');
+            const data = await response.json();
+            
+            const tbody = document.getElementById('logs-table-body');
+            tbody.innerHTML = '';
+            
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-gray-500">No log files available</td></tr>`;
+                return;
+            }
+            
+            data.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-gray-800 transition-colors duration-150 group';
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">
+                        ${log.filename}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                        ${formatDate(log.modified_at)}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                        ${formatBytes(log.size)}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <a href="/api/system/logs/download/${log.filename}" class="inline-flex items-center text-blue-400 hover:text-blue-300 transition-colors px-3 py-1 bg-blue-500/10 rounded-full hover:bg-blue-500/20" download>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Download
+                        </a>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+        } catch (e) {
+            document.getElementById('logs-table-body').innerHTML = `<tr><td colspan="4" class="px-6 py-8 text-center text-red-500">Error loading log files</td></tr>`;
+            showError(e.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadLogFiles);
+</script>
+{% endblock %}

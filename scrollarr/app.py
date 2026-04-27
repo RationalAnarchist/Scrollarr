@@ -405,6 +405,16 @@ async def status_page(request: Request):
     """Render the status page."""
     return templates.TemplateResponse(request=request, name="status.html", context={"request": request})
 
+@app.get("/events", response_class=HTMLResponse)
+async def events_page(request: Request):
+    """Render the events page."""
+    return templates.TemplateResponse(request=request, name="events.html", context={"request": request})
+
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page(request: Request):
+    """Render the logs page."""
+    return templates.TemplateResponse(request=request, name="logs.html", context={"request": request})
+
 @app.get("/system/tasks", response_class=HTMLResponse)
 async def tasks_page(request: Request):
     """Render the tasks page."""
@@ -541,22 +551,82 @@ async def get_system_status():
         logger.error(f"Error fetching status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/logs")
-async def get_logs(lines: int = 100):
-    """Get the last N lines of logs."""
+@app.get("/api/events")
+async def get_events(lines: int = 500):
+    """Get parsed events from the log file."""
     log_file = "logs/scrollarr.log"
-    try:
-        if not os.path.exists(log_file):
-            return {"logs": "Log file not found."}
+    if not os.path.exists(log_file):
+        return {"events": []}
 
-        from collections import deque
-        with open(log_file, "r") as f:
-            # Efficiently read last N lines
-            last_lines = deque(f, maxlen=lines)
-            return {"logs": "".join(last_lines)}
+    import re
+    
+    events = []
+    # Pattern: 2023-10-27 10:00:00,000 - INFO - root - Something happened
+    pattern = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (\w+) - ([\w.]+) - (.*)$")
+    
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+            
+        current_event = None
+        # Process the last N*5 lines to account for multi-line logs, but ensuring we don't read the whole file if huge.
+        for line in all_lines[-lines*5:]:
+            match = pattern.match(line)
+            if match:
+                if current_event:
+                    events.append(current_event)
+                current_event = {
+                    "timestamp": match.group(1),
+                    "level": match.group(2),
+                    "component": match.group(3),
+                    "message": match.group(4)
+                }
+            elif current_event:
+                current_event["message"] += "\n" + line.strip()
+                
+        if current_event:
+            events.append(current_event)
+            
+        return {"events": events[-lines:]}
     except Exception as e:
-         logger.error(f"Error reading logs: {e}")
-         return {"logs": f"Error reading logs: {str(e)}"}
+        logger.error(f"Error reading events: {e}")
+        return {"events": []}
+
+@app.get("/api/system/logs")
+async def get_system_logs():
+    """Get list of log files."""
+    log_dir = "logs"
+    if not os.path.exists(log_dir):
+        return []
+        
+    log_files = []
+    for f in os.listdir(log_dir):
+        if f.endswith(".log"):
+            filepath = os.path.join(log_dir, f)
+            stat = os.stat(filepath)
+            from datetime import datetime
+            modified_at = datetime.fromtimestamp(stat.st_mtime).isoformat()
+            log_files.append({
+                "filename": f,
+                "size": stat.st_size,
+                "modified_at": modified_at
+            })
+    return sorted(log_files, key=lambda x: x['modified_at'], reverse=True)
+
+from fastapi.responses import FileResponse
+
+@app.get("/api/system/logs/download/{filename}")
+async def download_log_file(filename: str):
+    """Download a specific log file."""
+    # Sanitize filename
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+        
+    filepath = os.path.join("logs", filename)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    return FileResponse(path=filepath, filename=filename, media_type='text/plain')
 
 @app.get("/api/calendar")
 async def get_calendar_events(response: Response, start: Optional[str] = None, end: Optional[str] = None):

@@ -51,38 +51,12 @@
         </div>
     </div>
 
-    <!-- Logs -->
-    <div class="bg-gray-800 rounded-lg shadow-lg overflow-hidden flex flex-col h-[500px]">
-        <div class="bg-gray-900 px-6 py-4 flex justify-between items-center border-b border-gray-700">
-            <h3 class="text-lg font-bold">Application Logs</h3>
-             <div class="flex items-center gap-4">
-                <span class="text-xs text-gray-400 flex items-center gap-1">
-                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                    Live
-                </span>
-             </div>
-        </div>
-        <div class="flex-1 p-4 overflow-auto font-mono text-sm bg-black text-green-400" id="log-container">
-            <pre id="log-content">Fetching logs...</pre>
-        </div>
-    </div>
 
 {% endblock %}
 
 {% block scripts %}
 <script>
-    const logContent = document.getElementById('log-content');
-    const logContainer = document.getElementById('log-container');
-    let autoScroll = true;
 
-    // Detect manual scroll to disable auto-scroll
-    logContainer.addEventListener('scroll', () => {
-        if (logContainer.scrollTop + logContainer.clientHeight < logContainer.scrollHeight - 20) {
-            autoScroll = false;
-        } else {
-            autoScroll = true;
-        }
-    });
 
      async function fetchStatus() {
         try {
@@ -106,27 +80,12 @@
         }
     }
 
-    async function fetchLogs() {
-        try {
-            const response = await fetch('/api/logs');
-            const data = await response.json();
 
-            logContent.textContent = data.logs;
-
-            if (autoScroll) {
-                logContainer.scrollTop = logContainer.scrollHeight;
-            }
-        } catch (err) {
-             console.error("Error fetching logs:", err);
-        }
-    }
 
     // Initial load
     fetchStatus();
-    fetchLogs();
 
     // Poll
     setInterval(fetchStatus, 5000);
-    setInterval(fetchLogs, 5000);
 </script>
 {% endblock %}

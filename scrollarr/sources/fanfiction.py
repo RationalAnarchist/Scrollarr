@@ -1,9 +1,11 @@
 import re
-import time
-import subprocess
+import urllib.parse
 from typing import List, Dict, Optional
 from datetime import datetime
+import requests
 from bs4 import BeautifulSoup
+import zipfile
+import io
 from ..core_logic import BaseSource
 
 class FanFictionSource(BaseSource):
@@ -11,324 +13,203 @@ class FanFictionSource(BaseSource):
     name = "FanFiction.net / FictionPress"
     is_enabled_by_default = True
 
+    # Class-level cache to hold fetched HTML content from Fichub
+    _fichub_cache = {}
+
     def identify(self, url: str) -> bool:
         return 'fanfiction.net' in url or 'fictionpress.com' in url
 
-    def _get_playwright(self):
-        try:
-            from playwright.sync_api import sync_playwright
-            return sync_playwright()
-        except ImportError:
-            raise ImportError("Playwright is not installed. Please install it to use FanFiction source.")
-
-    def _ensure_browser_installed(self):
-        """Attempts to install Playwright browsers if missing."""
-        print("Playwright browsers not found. Installing...")
-        try:
-            subprocess.run(["playwright", "install", "chromium"], check=True)
-            print("Playwright browsers installed successfully.")
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to install Playwright browsers: {e}")
-            raise
-        except Exception as e:
-            print(f"Unexpected error installing Playwright browsers: {e}")
-            raise
+    def _get_fichub_meta(self, url: str) -> Optional[Dict]:
+        api_url = "https://fichub.net/api/v0/epub"
+        headers = {"User-Agent": "Scrollarr/1.0"}
+        res = requests.get(api_url, params={"q": url}, headers=headers)
+        if res.status_code == 200:
+            return res.json()
+        return None
 
     def get_metadata(self, url: str) -> Dict:
-        with self._get_playwright() as p:
-            try:
-                browser = p.chromium.launch(headless=True)
-            except Exception as e:
-                if "Executable doesn't exist" in str(e):
-                    self._ensure_browser_installed()
-                    browser = p.chromium.launch(headless=True)
-                else:
-                    raise e
+        data = self._get_fichub_meta(url)
+        if not data or 'meta' not in data:
+            return {'title': 'Unknown', 'author': 'Unknown'}
 
-            page = browser.new_page()
-            try:
-                page.goto(url, wait_until="domcontentloaded")
-                # Wait for Cloudflare/Content
-                try:
-                    page.wait_for_selector('#profile_top', timeout=15000)
-                except:
-                    pass
+        meta = data['meta']
+        title = meta.get('title', 'Unknown Title')
+        author = meta.get('author', 'Unknown Author')
+        description = meta.get('description', 'No description available.')
+        
+        # Remove HTML tags from description if needed, or leave it
+        if description.startswith('<p>'):
+            soup = BeautifulSoup(description, 'html.parser')
+            description = soup.get_text(strip=True)
 
-                html = page.content()
-                soup = BeautifulSoup(html, 'html.parser')
+        cover_url = None # Fichub doesn't seem to reliably provide cover images for FFnet
+        publication_status = "Completed" if meta.get('status') == 'complete' else "Ongoing"
+        
+        rating = None
+        if 'rawExtendedMeta' in meta and 'rated' in meta['rawExtendedMeta']:
+            rating = meta['rawExtendedMeta']['rated']
+            
+        language = "English"
+        if 'rawExtendedMeta' in meta and 'language' in meta['rawExtendedMeta']:
+            language = meta['rawExtendedMeta']['language']
 
-                # Profile Top contains metadata
-                profile_top = soup.select_one('#profile_top')
-                if not profile_top:
-                    # Maybe mobile view or error
-                    # Try finding title elsewhere or raise error
-                    # For now return basics
-                    return {'title': 'Unknown', 'author': 'Unknown'}
-
-                # Title
-                title_tag = profile_top.find('b', class_='xcontrast_txt')
-                title = title_tag.get_text(strip=True) if title_tag else "Unknown Title"
-
-                # Author
-                author_tag = profile_top.find('a', href=re.compile(r'/u/\d+/'))
-                author = author_tag.get_text(strip=True) if author_tag else "Unknown Author"
-
-                # Description
-                description_div = profile_top.find('div', class_='xcontrast_txt')
-                description = "No description available."
-                if description_div:
-                     description = description_div.get_text(strip=True)
-
-                # Cover
-                cover_url = None
-                img = profile_top.find('img', class_='cimage')
-                if img:
-                    cover_url = img.get('src')
-                    if cover_url and not cover_url.startswith('http'):
-                        cover_url = f"https:{cover_url}"
-
-                # Tags / Metadata Text
-                # The text usually looks like: "Rated: T - English - Romance/Humor - Chapters: 10 - Words: 20k - ..."
-                metadata_text = profile_top.get_text(" | ", strip=True)
-
-                # Extract status
-                publication_status = "Ongoing"
-                if "Status: Complete" in metadata_text:
-                    publication_status = "Completed"
-
-                # Extract rating
-                rating = None
-                rating_match = re.search(r'Rated:\s*([^\s|]+)', metadata_text)
-                if rating_match:
-                    rating = rating_match.group(1)
-
-                # Extract language
-                language = "English"
-                # Often the second item, but hard to guarantee.
-                # Let's just default to English for now or parse better later if needed.
-
-                return {
-                    'title': title,
-                    'author': author,
-                    'description': description,
-                    'cover_url': cover_url,
-                    'tags': None, # Tags are mixed in text, hard to separate cleanly without strict parsing
-                    'rating': rating,
-                    'language': language,
-                    'publication_status': publication_status
-                }
-            finally:
-                browser.close()
+        return {
+            'title': title,
+            'author': author,
+            'description': description,
+            'cover_url': cover_url,
+            'tags': None,
+            'rating': rating,
+            'language': language,
+            'publication_status': publication_status
+        }
 
     def get_chapter_list(self, url: str, **kwargs) -> List[Dict]:
-        with self._get_playwright() as p:
-            try:
-                browser = p.chromium.launch(headless=True)
-            except Exception as e:
-                if "Executable doesn't exist" in str(e):
-                    self._ensure_browser_installed()
-                    browser = p.chromium.launch(headless=True)
-                else:
-                    raise e
+        data = self._get_fichub_meta(url)
+        if not data or 'meta' not in data:
+            return []
 
-            page = browser.new_page()
-            try:
-                page.goto(url, wait_until="domcontentloaded")
-                try:
-                    page.wait_for_selector('#chap_select, #storytext', timeout=15000)
-                except:
-                    pass
+        meta = data['meta']
+        chapters_count = meta.get('chapters', 1)
+        
+        chapters = []
+        match = re.search(r'/s/(\d+)', url)
+        story_id = match.group(1) if match else "1"
+        domain = "https://www.fanfiction.net" if "fanfiction.net" in url else "https://www.fictionpress.com"
+        
+        # Try to parse published/updated
+        published_date = None
+        updated_date = None
+        try:
+            if meta.get('created'):
+                published_date = datetime.fromisoformat(meta['created'])
+            if meta.get('updated'):
+                updated_date = datetime.fromisoformat(meta['updated'])
+        except:
+            pass
 
-                html = page.content()
-                soup = BeautifulSoup(html, 'html.parser')
+        for i in range(1, chapters_count + 1):
+            chap_url = f"{domain}/s/{story_id}/{i}"
+            chap = {
+                'title': f'Chapter {i}',
+                'url': chap_url,
+                'published_date': published_date if i == 1 else None
+            }
+            if i == chapters_count and chapters_count > 1 and updated_date:
+                chap['published_date'] = updated_date
+            chapters.append(chap)
 
-                chapters = []
-
-                # Check for chapter dropdown
-                select = soup.select_one('#chap_select')
-                if select:
-                    options = select.find_all('option')
-                    for opt in options:
-                        chap_id = opt.get('value')
-                        chap_title = opt.get_text(strip=True)
-                        # Construct URL. URL structure: /s/{story_id}/{chapter_id}/{slug}
-                        # We need base story url.
-                        # Input url might be /s/12345/1/Title
-                        # We can extract story ID.
-                        match = re.search(r'/s/(\d+)', url)
-                        if match:
-                            story_id = match.group(1)
-                            # Domain
-                            domain = "https://www.fanfiction.net" if "fanfiction.net" in url else "https://www.fictionpress.com"
-                            chap_url = f"{domain}/s/{story_id}/{chap_id}"
-
-                            # Clean title: "1. Chapter Title" -> "Chapter Title"
-                            # If just number, use it.
-                            clean_title = re.sub(r'^\d+\.\s*', '', chap_title)
-
-                            chapters.append({
-                                'title': clean_title,
-                                'url': chap_url,
-                                'published_date': None # Will be populated if possible
-                            })
-                else:
-                    # Single chapter
-                    # If we are on a valid story page but no dropdown, it's 1 chapter.
-                    if soup.select_one('#storytext'):
-                        chapters.append({
-                            'title': "Chapter 1",
-                            'url': url,
-                            'published_date': None
-                        })
-
-                # Try to extract dates from profile_top if available
-                # Usually profile_top has "Updated: X - Published: Y"
-                profile_top = soup.select_one('#profile_top')
-                if profile_top:
-                    # Look for span[data-xutime]
-                    times = profile_top.select('span[data-xutime]')
-                    # Usually "Updated" is first (if present), then "Published" is last (or first if no updated)
-                    # Text content helps distinguish
-
-                    published_ts = None
-                    updated_ts = None
-
-                    # Iterate over spans to find context
-                    # The text immediately preceding the span usually says "Updated: " or "Published: "
-                    # But BeautifulSoup text extraction flattens it.
-                    # Let's use the full text and regex
-                    full_text = profile_top.get_text()
-
-                    # Regex to find timestamps: "Published: <span...>"
-                    # But we only have the soup.
-                    # We can iterate the spans and check previous sibling text?
-
-                    for span in times:
-                        ts = int(span.get('data-xutime', 0))
-                        prev = span.previous_sibling
-                        if prev and isinstance(prev, str):
-                            if "Published:" in prev:
-                                published_ts = ts
-                            elif "Updated:" in prev:
-                                updated_ts = ts
-
-                    if not published_ts and not updated_ts and times:
-                        # Fallback: if only 1 time, it's Published. If 2, first is Updated, second is Published?
-                        # Actually FF.net puts Updated first usually.
-                        pass
-
-                    # If we found timestamps, assign to first and last chapter
-                    # This is a heuristic because FF.net doesn't give per-chapter dates easily on desktop
-                    if chapters:
-                        if published_ts:
-                            chapters[0]['published_date'] = datetime.fromtimestamp(published_ts)
-
-                        if updated_ts and len(chapters) > 1:
-                            chapters[-1]['published_date'] = datetime.fromtimestamp(updated_ts)
-                        elif published_ts and len(chapters) == 1:
-                             # Single chapter, published date applies
-                             chapters[0]['published_date'] = datetime.fromtimestamp(published_ts)
-
-                return chapters
-            finally:
-                browser.close()
+        return chapters
 
     def get_chapter_content(self, chapter_url: str) -> str:
-        with self._get_playwright() as p:
-            try:
-                browser = p.chromium.launch(headless=True)
-            except Exception as e:
-                if "Executable doesn't exist" in str(e):
-                    self._ensure_browser_installed()
-                    browser = p.chromium.launch(headless=True)
-                else:
-                    raise e
+        match = re.search(r'/s/(\d+)', chapter_url)
+        if not match:
+            return "<p>Error: Invalid chapter URL</p>"
+        story_id = match.group(1)
+        
+        chap_match = re.search(r'/s/\d+/(\d+)', chapter_url)
+        chapter_idx = int(chap_match.group(1)) if chap_match else 1
 
-            page = browser.new_page()
-            try:
-                page.goto(chapter_url, wait_until="domcontentloaded")
-                try:
-                    page.wait_for_selector('#storytext', timeout=15000)
-                except:
-                    pass
+        if story_id not in self._fichub_cache:
+            # Fetch from Fichub
+            data = self._get_fichub_meta(chapter_url)
+            if not data or 'html_url' not in data:
+                return "<p>Error: Could not retrieve from Fichub.</p>"
+            
+            html_url = "https://fichub.net" + data['html_url']
+            res = requests.get(html_url, headers={"User-Agent": "Scrollarr/1.0"})
+            if res.status_code != 200:
+                return "<p>Error: Could not download Fichub HTML zip.</p>"
+            
+            # Unzip
+            with zipfile.ZipFile(io.BytesIO(res.content)) as z:
+                # Expecting one html file
+                names = [n for n in z.namelist() if n.endswith('.html')]
+                if not names:
+                    return "<p>Error: No HTML file in Fichub zip.</p>"
+                
+                with z.open(names[0]) as f:
+                    soup = BeautifulSoup(f.read(), 'html.parser')
+                    
+                    # Fichub HTML structure: <h1>Title</h1> <h2>by Author</h2> <h2>Chapter 1</h2> <p>...</p> <h2>Chapter 2</h2> ...
+                    # We can split elements based on <h2>
+                    chapters_dict = {}
+                    for h2 in soup.find_all('h2'):
+                        text = h2.get_text(strip=True).lower()
+                        if text.startswith('chapter '):
+                            try:
+                                num_str = text.replace('chapter ', '').split()[0]
+                                current_idx = int(num_str)
+                            except:
+                                continue
+                            
+                            parent = h2.parent
+                            if parent and parent.name == 'div':
+                                chapters_dict[current_idx] = str(parent)
+                            else:
+                                # Fallback: collect siblings until next h2
+                                content = [str(h2)]
+                                node = h2.next_sibling
+                                while node and getattr(node, 'name', '') != 'h2':
+                                    content.append(str(node))
+                                    node = node.next_sibling
+                                chapters_dict[current_idx] = "".join(content)
+                        
+                    # If it's a single chapter story, there might not be a "Chapter 1" h2.
+                    if not chapters_dict:
+                        # Grab everything after h1 and h2(by Author)
+                        content = []
+                        past_header = False
+                        for child in soup.body.children:
+                            if child.name == 'h2' and getattr(child, 'text', '').startswith('by'):
+                                past_header = True
+                                continue
+                            if past_header:
+                                content.append(str(child))
+                        chapters_dict[1] = "".join(content)
 
-                html = page.content()
-                soup = BeautifulSoup(html, 'html.parser')
+                    self._fichub_cache[story_id] = chapters_dict
 
-                content_div = soup.select_one('#storytext')
-                if content_div:
-                    self.remove_hidden_elements(soup, content_div)
-                    return content_div.decode_contents()
-
-                return "<p>No content found.</p>"
-
-            finally:
-                browser.close()
+        chapter_html = self._fichub_cache.get(story_id, {}).get(chapter_idx)
+        if not chapter_html:
+            return f"<p>Chapter {chapter_idx} content not found in Fichub export.</p>"
+        
+        return chapter_html
 
     def search(self, query: str) -> List[Dict]:
-        # Search URL: https://www.fanfiction.net/search/?keywords=query&ready=1&type=story
-        # We need to handle both domains? usually search implies one.
-        # Let's default to fanfiction.net for now, or maybe try both if we could (but we return list).
-        # Let's check which domain is more "default". FanFiction.net is bigger.
-
-        base_url = "https://www.fanfiction.net"
-        search_url = f"{base_url}/search/?keywords={query}&ready=1&type=story"
-
+        # Search using DuckDuckGo Lite since FFN search is Cloudflare-blocked
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+        }
+        url = "https://lite.duckduckgo.com/lite/"
+        # Prioritize fanfiction.net
+        data = {"q": f"site:fanfiction.net {query}"}
+        res = requests.post(url, headers=headers, data=data)
+        
         results = []
-        with self._get_playwright() as p:
-            try:
-                browser = p.chromium.launch(headless=True)
-            except Exception as e:
-                if "Executable doesn't exist" in str(e):
-                    self._ensure_browser_installed()
-                    browser = p.chromium.launch(headless=True)
-                else:
-                    raise e
-
-            page = browser.new_page()
-            try:
-                page.goto(search_url, wait_until="domcontentloaded")
-                try:
-                    page.wait_for_selector('.z-list', timeout=15000)
-                except:
-                    pass
-
-                html = page.content()
-                soup = BeautifulSoup(html, 'html.parser')
-
-                items = soup.select('.z-list')
-                for item in items:
-                    try:
-                        # Title
-                        title_link = item.find('a', class_='stitle')
-                        if not title_link:
-                            continue
-
-                        title = title_link.get_text(strip=True)
-                        url = f"{base_url}{title_link['href']}"
-
-                        # Author
-                        author_link = item.find('a', href=re.compile(r'/u/'))
-                        author = author_link.get_text(strip=True) if author_link else "Unknown"
-
-                        # Cover
-                        cover_url = None
-                        img = item.find('img', class_='cimage')
-                        if img:
-                            src = img.get('src')
-                            if src:
-                                cover_url = src if src.startswith('http') else f"https:{src}"
-
-                        results.append({
-                            'title': title,
-                            'url': url,
-                            'author': author,
-                            'cover_url': cover_url,
-                            'provider': 'FanFiction.net'
-                        })
-                    except Exception:
-                        continue
-            finally:
-                browser.close()
-
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            seen_urls = set()
+            for a in soup.select('a.result-url'):
+                href = a.get('href', '')
+                title_text = a.get_text(strip=True)
+                
+                if 'fanfiction.net/s/' in href:
+                    # Clean URL to base story url: https://www.fanfiction.net/s/12345/1/
+                    match = re.search(r'(https?://(?:www\.)?fanfiction\.net/s/\d+)(?:/.*)?', href)
+                    if match:
+                        base_url = match.group(1) + "/1"
+                        if base_url not in seen_urls:
+                            seen_urls.add(base_url)
+                            # Clean up title (remove "Chapter X" or ", a Stargate: SG-1 ...")
+                            title = re.sub(r' Chapter \d+,.*$', '', title_text)
+                            title = re.sub(r' \| FanFiction$', '', title)
+                            
+                            results.append({
+                                'title': title,
+                                'url': base_url,
+                                'author': 'Unknown', # DDG doesn't cleanly provide author
+                                'cover_url': None,
+                                'provider': 'FanFiction.net'
+                            })
         return results

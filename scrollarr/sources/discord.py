@@ -164,13 +164,20 @@ class DiscordSource(BaseSource):
             
         channel_id, msg_id = match.groups()
         
+        import time
+        time.sleep(1.5) # Protect user tokens from rate limits when batch downloading
+        
         try:
-            # 1. Fetch the message to get the fresh attachment URL
-            res = self._make_request(f"https://discord.com/api/v10/channels/{channel_id}/messages/{msg_id}")
+            # 1. Fetch the message to get the fresh attachment URL.
+            # Using ?limit=1&around= to mimic the official client and avoid User Token 403s
+            res = self._make_request(f"https://discord.com/api/v10/channels/{channel_id}/messages", params={'limit': 1, 'around': msg_id})
             if res.status_code != 200:
-                return f"<p>Failed to fetch message from Discord: {res.status_code}</p>"
+                return f"<p>Failed to fetch message from Discord: {res.status_code} {res.text}</p>"
                 
-            msg = res.json()
+            messages = res.json()
+            if not messages:
+                return "<p>Message not found.</p>"
+            msg = messages[0]
             epub_url = None
             for attachment in msg.get('attachments', []):
                 if attachment['filename'].endswith('.epub'):

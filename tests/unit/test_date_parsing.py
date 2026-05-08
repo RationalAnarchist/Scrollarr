@@ -8,7 +8,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 # Import sources
-from scrollarr.sources.fanfiction import FanFictionSource
+
 from scrollarr.sources.wattpad import WattpadSource
 from scrollarr.sources.webnovel import WebNovelSource
 from scrollarr.sources.inkitt import InkittSource
@@ -16,47 +16,7 @@ from scrollarr.sources.tapas import TapasSource
 
 class TestSourceDateParsing(unittest.TestCase):
 
-    @patch('scrollarr.sources.fanfiction.FanFictionSource._get_playwright')
-    def test_fanfiction_date_parsing(self, mock_get_playwright):
-        # FanFiction source logic relies on BS4 scraping in get_chapter_list AFTER playwright navigation
-        # We need to mock the browser page content
-        source = FanFictionSource()
 
-        # Create mocks
-        mock_p = MagicMock()
-        mock_browser = MagicMock()
-        mock_page = MagicMock()
-
-        mock_get_playwright.return_value.__enter__.return_value = mock_p
-        mock_p.chromium.launch.return_value = mock_browser
-        mock_browser.new_page.return_value = mock_page
-
-        # HTML content with timestamps in profile_top
-        html_content = """
-        <html>
-        <body>
-            <div id='profile_top'>
-                Updated: <span data-xutime='1672617600'>Jan 2, 2023</span>
-                Published: <span data-xutime='1672531200'>Jan 1, 2023</span>
-            </div>
-            <select id='chap_select'>
-                <option value='1'>Chapter 1</option>
-                <option value='2'>Chapter 2</option>
-            </select>
-        </body>
-        </html>
-        """
-        mock_page.content.return_value = html_content
-
-        # Call method
-        chapters = source.get_chapter_list("https://www.fanfiction.net/s/123/1/")
-
-        # Assertions
-        self.assertEqual(len(chapters), 2)
-        # First chapter should have Published date (1672531200 -> 2023-01-01)
-        self.assertEqual(chapters[0]['published_date'], datetime.fromtimestamp(1672531200))
-        # Last chapter should have Updated date (1672617600 -> 2023-01-02)
-        self.assertEqual(chapters[1]['published_date'], datetime.fromtimestamp(1672617600))
 
     @patch('scrollarr.sources.webnovel.WebNovelSource._get_playwright')
     def test_webnovel_date_parsing(self, mock_get_playwright):

@@ -847,15 +847,27 @@ async def get_discord_channels():
         raise HTTPException(status_code=400, detail="Discord bot token not configured in Settings.")
         
     token = token.strip().strip('"\'')
-    headers = {
+    
+    headers_user = {
+        "Authorization": token,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    headers_bot = {
         "Authorization": f"Bot {token}",
         "User-Agent": "DiscordBot (https://github.com/RationalAnarchist/Scrollarr, 1.0.0)"
     }
+    
     import requests
+    
+    def make_discord_req(url):
+        res = requests.get(url, headers=headers_user)
+        if res.status_code == 401:
+            res = requests.get(url, headers=headers_bot)
+        return res
     
     try:
         # Get Guilds
-        guilds_res = requests.get("https://discord.com/api/v10/users/@me/guilds", headers=headers)
+        guilds_res = make_discord_req("https://discord.com/api/v10/users/@me/guilds")
         if guilds_res.status_code != 200:
             logger.error(f"Discord API Error (Guilds): {guilds_res.status_code} {guilds_res.text}")
             raise HTTPException(status_code=400, detail=f"Failed to fetch guilds. Error: {guilds_res.text}")
@@ -868,7 +880,7 @@ async def get_discord_channels():
             g_name = guild['name']
             
             # Get Channels
-            channels_res = requests.get(f"https://discord.com/api/v10/guilds/{g_id}/channels", headers=headers)
+            channels_res = make_discord_req(f"https://discord.com/api/v10/guilds/{g_id}/channels")
             if channels_res.status_code == 200:
                 channels = channels_res.json()
                 # Type 0 is GUILD_TEXT, Type 5 is GUILD_ANNOUNCEMENT

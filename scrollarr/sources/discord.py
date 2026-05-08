@@ -21,15 +21,25 @@ class DiscordSource(BaseSource):
     def _get_token(self):
         return os.getenv('DISCORD_TOKEN', config_manager.get('discord_bot_token', ''))
 
-    def _get_headers(self):
+    def _make_request(self, url: str, params=None):
         token = self._get_token()
         if not token:
             raise ValueError("DISCORD_TOKEN environment variable or discord_bot_token config is not set. Please set it to use the Discord source.")
+            
         token = token.strip().strip('"\'')
-        return {
+        headers_user = {
+            "Authorization": token,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        headers_bot = {
             "Authorization": f"Bot {token}",
             "User-Agent": "DiscordBot (https://github.com/RationalAnarchist/Scrollarr, 1.0.0)"
         }
+        
+        res = requests.get(url, headers=headers_user, params=params)
+        if res.status_code == 401:
+            res = requests.get(url, headers=headers_bot, params=params)
+        return res
 
     def get_metadata(self, url: str) -> Dict:
         match = re.search(r'discord://(\d+)', url)
@@ -38,7 +48,7 @@ class DiscordSource(BaseSource):
         
         channel_id = match.group(1)
         try:
-            res = requests.get(f"https://discord.com/api/v10/channels/{channel_id}", headers=self._get_headers())
+            res = self._make_request(f"https://discord.com/api/v10/channels/{channel_id}")
             if res.status_code == 200:
                 data = res.json()
                 channel_name = data.get('name', channel_id)
@@ -82,7 +92,7 @@ class DiscordSource(BaseSource):
                 params['before'] = before_id
                 
             try:
-                res = requests.get(api_url, headers=self._get_headers(), params=params)
+                res = self._make_request(api_url, params=params)
                 if res.status_code != 200:
                     print(f"Discord API Error: {res.status_code} {res.text}")
                     break
@@ -156,7 +166,7 @@ class DiscordSource(BaseSource):
         
         try:
             # 1. Fetch the message to get the fresh attachment URL
-            res = requests.get(f"https://discord.com/api/v10/channels/{channel_id}/messages/{msg_id}", headers=self._get_headers())
+            res = self._make_request(f"https://discord.com/api/v10/channels/{channel_id}/messages/{msg_id}")
             if res.status_code != 200:
                 return f"<p>Failed to fetch message from Discord: {res.status_code}</p>"
                 

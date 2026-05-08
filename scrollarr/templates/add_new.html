@@ -224,42 +224,86 @@
             serversDiv.innerHTML = '';
             
             try {
-                const res = await fetch('/api/discord/channels');
+                const res = await fetch('/api/discord/guilds');
                 if (!res.ok) {
                     const errData = await res.json();
-                    throw new Error(errData.detail || 'Failed to load channels');
+                    throw new Error(errData.detail || 'Failed to load servers');
                 }
-                const data = await res.json();
+                const guilds = await res.json();
                 
-                if (data.length === 0) {
-                    serversDiv.innerHTML = '<p class="text-gray-400 text-center py-4">No servers or text channels found for this bot.</p>';
+                if (guilds.length === 0) {
+                    serversDiv.innerHTML = '<p class="text-gray-400 text-center py-4">No servers found for this token.</p>';
                 } else {
-                    data.forEach(guild => {
+                    guilds.forEach(guild => {
                         const guildDiv = document.createElement('div');
-                        guildDiv.className = 'bg-gray-700/50 rounded-lg p-3 border border-gray-600';
+                        guildDiv.className = 'bg-gray-700/50 rounded-lg p-3 border border-gray-600 mb-4';
+                        
+                        const headerDiv = document.createElement('div');
+                        headerDiv.className = 'flex justify-between items-center cursor-pointer pb-2';
                         
                         const guildName = document.createElement('h4');
-                        guildName.className = 'font-bold text-white mb-2 pb-2 border-b border-gray-600';
-                        guildName.innerText = guild.guild_name;
-                        guildDiv.appendChild(guildName);
+                        guildName.className = 'font-bold text-white';
+                        guildName.innerText = guild.name;
                         
-                        const channelsList = document.createElement('div');
-                        channelsList.className = 'space-y-1 max-h-48 overflow-y-auto pr-2 custom-scrollbar';
+                        const expandIcon = document.createElement('span');
+                        expandIcon.className = 'text-gray-400 transform transition-transform';
+                        expandIcon.innerHTML = '▼';
                         
-                        guild.channels.forEach(channel => {
-                            const btn = document.createElement('button');
-                            btn.className = 'w-full text-left px-3 py-2 rounded hover:bg-[#5865F2] hover:text-white text-gray-300 transition-colors flex items-center gap-2 group';
-                            btn.innerHTML = `<span class="text-gray-500 group-hover:text-blue-200">#</span> ${channel.name.replace('#', '')}`;
-                            btn.onclick = () => {
-                                document.getElementById('url-input').value = `discord://${channel.id}`;
-                                closeDiscordPicker();
-                                lookupStory();
-                            };
-                            channelsList.appendChild(btn);
-                        });
+                        headerDiv.appendChild(guildName);
+                        headerDiv.appendChild(expandIcon);
                         
-                        guildDiv.appendChild(channelsList);
+                        const channelsContainer = document.createElement('div');
+                        channelsContainer.className = 'hidden mt-2 pt-2 border-t border-gray-600';
+                        
+                        guildDiv.appendChild(headerDiv);
+                        guildDiv.appendChild(channelsContainer);
                         serversDiv.appendChild(guildDiv);
+                        
+                        let channelsLoaded = false;
+                        
+                        headerDiv.onclick = async () => {
+                            if (channelsContainer.classList.contains('hidden')) {
+                                channelsContainer.classList.remove('hidden');
+                                expandIcon.style.transform = 'rotate(180deg)';
+                                
+                                if (!channelsLoaded) {
+                                    channelsContainer.innerHTML = '<div class="text-center py-2"><svg class="animate-spin h-5 w-5 text-[#5865F2] inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>';
+                                    try {
+                                        const cRes = await fetch(`/api/discord/guilds/${guild.id}/channels`);
+                                        if (!cRes.ok) throw new Error('Failed to load channels');
+                                        const channels = await cRes.json();
+                                        
+                                        channelsContainer.innerHTML = '';
+                                        if (channels.length === 0) {
+                                            channelsContainer.innerHTML = '<p class="text-gray-500 text-sm italic">No text channels found.</p>';
+                                        } else {
+                                            const channelsList = document.createElement('div');
+                                            channelsList.className = 'space-y-1 max-h-48 overflow-y-auto pr-2 custom-scrollbar';
+                                            
+                                            channels.forEach(channel => {
+                                                const btn = document.createElement('button');
+                                                btn.className = 'w-full text-left px-3 py-2 rounded hover:bg-[#5865F2] hover:text-white text-gray-300 transition-colors flex items-center gap-2 group';
+                                                btn.innerHTML = `<span class="text-gray-500 group-hover:text-blue-200">#</span> ${channel.name.replace('#', '')}`;
+                                                btn.onclick = (e) => {
+                                                    e.stopPropagation();
+                                                    document.getElementById('url-input').value = `discord://${channel.id}`;
+                                                    closeDiscordPicker();
+                                                    lookupStory();
+                                                };
+                                                channelsList.appendChild(btn);
+                                            });
+                                            channelsContainer.appendChild(channelsList);
+                                        }
+                                        channelsLoaded = true;
+                                    } catch (e) {
+                                        channelsContainer.innerHTML = '<p class="text-red-400 text-sm">Error loading channels</p>';
+                                    }
+                                }
+                            } else {
+                                channelsContainer.classList.add('hidden');
+                                expandIcon.style.transform = 'rotate(0deg)';
+                            }
+                        };
                     });
                 }
                 

@@ -1,28 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Library - Scrollarr
-    <!-- Bulk Actions Toolbar -->
-    <div id="bulk-toolbar" class="fixed bottom-0 left-0 right-0 md:left-64 bg-gray-800 border-t border-gray-700 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)] z-40 transform translate-y-full transition-transform duration-300 flex justify-between items-center">
-        <div class="text-white font-bold">
-            <span id="bulk-count">0</span> Selected
-        </div>
-        <div class="flex flex-wrap gap-2">
-            <button onclick="executeBulkAction('update')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Update</button>
-            <button onclick="executeBulkAction('pause')" class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Pause</button>
-            <button onclick="executeBulkAction('resume')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Resume</button>
-            <button onclick="executeBulkAction('delete')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Delete</button>
-            <button onclick="clearSelection()" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded md:ml-4 shadow text-sm">Cancel</button>
-        </div>
-    </div>
-
-{% endblock %}
+{% block title %}Library - Scrollarr{% endblock %}
 
 {% block content %}
     <header class="flex justify-between items-center mb-8">
         <h1 class="text-3xl font-bold">Library</h1>
         <div class="flex items-center gap-4">
             <div class="relative group">
-            <input type="checkbox" value="{{ story.id }}" class="story-checkbox absolute top-2 left-2 z-20 w-5 h-5 bg-gray-700 border-gray-600 rounded text-blue-500 focus:ring-blue-500 cursor-pointer hidden group-hover:block checked:block">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400 cursor-help hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -291,6 +275,19 @@
             <div id="migration-progress" class="hidden mt-4">
                 <p class="text-blue-400 animate-pulse">Migrating files... This may take a moment.</p>
             </div>
+        </div>
+    </div>
+    <!-- Bulk Actions Toolbar -->
+    <div id="bulk-toolbar" class="fixed bottom-0 left-0 right-0 md:left-64 bg-gray-800 border-t border-gray-700 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)] z-40 transform translate-y-full transition-transform duration-300 flex justify-between items-center">
+        <div class="text-white font-bold">
+            <span id="bulk-count">0</span> Selected
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <button onclick="executeBulkAction('update')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Update</button>
+            <button onclick="executeBulkAction('pause')" class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Pause</button>
+            <button onclick="executeBulkAction('resume')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Resume</button>
+            <button onclick="executeBulkAction('delete')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Delete</button>
+            <button onclick="clearSelection()" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded md:ml-4 shadow text-sm">Cancel</button>
         </div>
     </div>
 {% endblock %}

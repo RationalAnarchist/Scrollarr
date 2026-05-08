@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
 from scrollarr.sources.fanfiction import FanFictionSource
+import io
+import zipfile
 
 class TestFanFictionSource(unittest.TestCase):
     def setUp(self):
@@ -11,33 +13,23 @@ class TestFanFictionSource(unittest.TestCase):
         self.assertTrue(self.source.identify("https://www.fictionpress.com/s/456/1/Title"))
         self.assertFalse(self.source.identify("https://google.com"))
 
-    @patch('playwright.sync_api.sync_playwright')
-    def test_get_metadata(self, mock_sync_playwright):
-        # Mock Context
-        mock_context_manager = MagicMock()
-        mock_playwright = MagicMock()
-        mock_browser = MagicMock()
-        mock_page = MagicMock()
-
-        mock_sync_playwright.return_value = mock_context_manager
-        mock_context_manager.__enter__.return_value = mock_playwright
-        mock_playwright.chromium.launch.return_value = mock_browser
-        mock_browser.new_page.return_value = mock_page
-
-        html = """
-        <html>
-            <body>
-                <div id="profile_top" class="xcontrast_txt">
-                    <b class="xcontrast_txt">Test Fanfic Title</b>
-                    <span>By:</span> <a href="/u/123/author">Test Author</a>
-                    <div class="xcontrast_txt">This is a test summary.</div>
-                    <img class="cimage" src="//image.url/cover.jpg">
-                    <span class="xgray xcontrast_txt">Rated: T - English - Romance - Chapters: 10 - Status: Complete</span>
-                </div>
-            </body>
-        </html>
-        """
-        mock_page.content.return_value = html
+    @patch('requests.get')
+    def test_get_metadata(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "meta": {
+                "title": "Test Fanfic Title",
+                "author": "Test Author",
+                "description": "<p>test summary.</p>",
+                "status": "complete",
+                "rawExtendedMeta": {
+                    "rated": "T",
+                    "language": "English"
+                }
+            }
+        }
+        mock_get.return_value = mock_response
 
         metadata = self.source.get_metadata("https://www.fanfiction.net/s/123/1/Title")
 
@@ -46,97 +38,83 @@ class TestFanFictionSource(unittest.TestCase):
         self.assertIn("test summary", metadata['description'])
         self.assertEqual(metadata['rating'], "T")
         self.assertEqual(metadata['publication_status'], "Completed")
-        self.assertEqual(metadata['cover_url'], "https://image.url/cover.jpg")
 
-    @patch('playwright.sync_api.sync_playwright')
-    def test_get_chapter_list(self, mock_sync_playwright):
-        mock_context_manager = MagicMock()
-        mock_playwright = MagicMock()
-        mock_browser = MagicMock()
-        mock_page = MagicMock()
-
-        mock_sync_playwright.return_value = mock_context_manager
-        mock_context_manager.__enter__.return_value = mock_playwright
-        mock_playwright.chromium.launch.return_value = mock_browser
-        mock_browser.new_page.return_value = mock_page
-
-        html = """
-        <html>
-            <body>
-                <select id="chap_select">
-                    <option value="1">1. Chapter One</option>
-                    <option value="2">2. Chapter Two</option>
-                </select>
-            </body>
-        </html>
-        """
-        mock_page.content.return_value = html
+    @patch('requests.get')
+    def test_get_chapter_list(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "meta": {
+                "chapters": 2,
+                "created": "2020-01-01T12:00:00",
+                "updated": "2020-01-02T12:00:00"
+            }
+        }
+        mock_get.return_value = mock_response
 
         chapters = self.source.get_chapter_list("https://www.fanfiction.net/s/123/1/Title")
 
         self.assertEqual(len(chapters), 2)
-        self.assertEqual(chapters[0]['title'], "Chapter One")
+        self.assertEqual(chapters[0]['title'], "Chapter 1")
         self.assertEqual(chapters[0]['url'], "https://www.fanfiction.net/s/123/1")
-        self.assertEqual(chapters[1]['title'], "Chapter Two")
+        self.assertEqual(chapters[1]['title'], "Chapter 2")
         self.assertEqual(chapters[1]['url'], "https://www.fanfiction.net/s/123/2")
 
-    @patch('playwright.sync_api.sync_playwright')
-    def test_get_chapter_content(self, mock_sync_playwright):
-        mock_context_manager = MagicMock()
-        mock_playwright = MagicMock()
-        mock_browser = MagicMock()
-        mock_page = MagicMock()
+    @patch('requests.get')
+    def test_get_chapter_content(self, mock_get):
+        mock_meta_response = MagicMock()
+        mock_meta_response.status_code = 200
+        mock_meta_response.json.return_value = {
+            "html_url": "/epub/123.zip"
+        }
+        
+        mock_zip_response = MagicMock()
+        mock_zip_response.status_code = 200
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            html_content = "<html><body><h2>Chapter 1</h2><p>This is the story content.</p></body></html>"
+            zf.writestr("story.html", html_content)
+        mock_zip_response.content = zip_buffer.getvalue()
 
-        mock_sync_playwright.return_value = mock_context_manager
-        mock_context_manager.__enter__.return_value = mock_playwright
-        mock_playwright.chromium.launch.return_value = mock_browser
-        mock_browser.new_page.return_value = mock_page
-
-        html = """
-        <html>
-            <body>
-                <div id="storytext">
-                    <p>This is the story content.</p>
-                </div>
-            </body>
-        </html>
-        """
-        mock_page.content.return_value = html
+        def get_side_effect(url, **kwargs):
+            if "fichub.net/api/v0/epub" in url:
+                return mock_meta_response
+            elif "fichub.net/epub/" in url:
+                return mock_zip_response
+            return MagicMock(status_code=404)
+            
+        mock_get.side_effect = get_side_effect
 
         content = self.source.get_chapter_content("https://www.fanfiction.net/s/123/1")
         self.assertIn("This is the story content.", content)
 
-    @patch('playwright.sync_api.sync_playwright')
-    def test_search(self, mock_sync_playwright):
-        mock_context_manager = MagicMock()
-        mock_playwright = MagicMock()
-        mock_browser = MagicMock()
-        mock_page = MagicMock()
-
-        mock_sync_playwright.return_value = mock_context_manager
-        mock_context_manager.__enter__.return_value = mock_playwright
-        mock_playwright.chromium.launch.return_value = mock_browser
-        mock_browser.new_page.return_value = mock_page
-
+    @patch('requests.post')
+    def test_search(self, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
         html = """
         <html>
             <body>
-                <div class="z-list">
-                    <a class="stitle" href="/s/999/1/Search-Result">Search Result</a>
-                    <a href="/u/888/Author">Author Name</a>
-                    <img class="cimage" src="//cover.jpg">
-                </div>
+                <table>
+                    <tr class="result-row">
+                        <td><a class="result-url" href="https://www.fanfiction.net/s/999/1/Search-Result">Search Result</a></td>
+                    </tr>
+                    <tr class="result-snippet">
+                        <td class="result-snippet">By: Author Name. Genre: Fantasy. Words: 10k</td>
+                    </tr>
+                </table>
             </body>
         </html>
         """
-        mock_page.content.return_value = html
+        mock_response.text = html
+        mock_post.return_value = mock_response
 
         results = self.source.search("query")
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]['title'], "Search Result")
         self.assertEqual(results[0]['author'], "Author Name")
-        self.assertEqual(results[0]['url'], "https://www.fanfiction.net/s/999/1/Search-Result")
+        self.assertEqual(results[0]['url'], "https://www.fanfiction.net/s/999/1")
 
 if __name__ == '__main__':
     unittest.main()

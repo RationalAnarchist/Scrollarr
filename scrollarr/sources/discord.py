@@ -165,7 +165,8 @@ class DiscordSource(BaseSource):
         channel_id, msg_id = match.groups()
         
         import time
-        time.sleep(1.5) # Protect user tokens from rate limits when batch downloading
+        import random
+        time.sleep(random.uniform(1.4, 1.999)) # Protect user tokens from rate limits when batch downloading
         
         try:
             # 1. Fetch the message to get the fresh attachment URL.

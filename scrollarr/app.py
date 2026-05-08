@@ -268,6 +268,7 @@ class SettingsRequest(BaseModel):
     auth_username: Optional[str] = None
     auth_password: Optional[str] = None
     local_auth_disabled: bool = False
+    discord_bot_token: Optional[str] = None
 
 class ProfileCreate(BaseModel):
     name: str
@@ -780,6 +781,8 @@ async def get_settings():
     # Mask secrets
     config['auth_password'] = ""
     config['session_secret'] = ""
+    if config.get('discord_bot_token'):
+        config['discord_bot_token'] = "********"
     return config
 
 @app.post("/api/settings")
@@ -808,6 +811,9 @@ async def update_settings(settings: SettingsRequest):
             "auth_method": settings.auth_method,
             "local_auth_disabled": settings.local_auth_disabled,
         }
+
+        if settings.discord_bot_token is not None and settings.discord_bot_token != "********":
+            updates["discord_bot_token"] = settings.discord_bot_token
 
         if settings.auth_username:
              updates["auth_username"] = settings.auth_username

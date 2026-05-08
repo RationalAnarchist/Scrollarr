@@ -22,9 +22,14 @@ class FanFictionSource(BaseSource):
     def _get_fichub_meta(self, url: str) -> Optional[Dict]:
         api_url = "https://fichub.net/api/v0/epub"
         headers = {"User-Agent": "Scrollarr/1.0"}
-        res = requests.get(api_url, params={"q": url}, headers=headers)
-        if res.status_code == 200:
-            return res.json()
+        try:
+            res = requests.get(api_url, params={"q": url}, headers=headers, timeout=15)
+            if res.status_code == 200:
+                return res.json()
+            else:
+                print(f"Fichub API Error: {res.status_code} {res.text}")
+        except Exception as e:
+            print(f"Error calling Fichub API: {e}")
         return None
 
     def get_metadata(self, url: str) -> Dict:
@@ -117,58 +122,65 @@ class FanFictionSource(BaseSource):
                 return "<p>Error: Could not retrieve from Fichub.</p>"
             
             html_url = "https://fichub.net" + data['html_url']
-            res = requests.get(html_url, headers={"User-Agent": "Scrollarr/1.0"})
-            if res.status_code != 200:
-                return "<p>Error: Could not download Fichub HTML zip.</p>"
-            
-            # Unzip
-            with zipfile.ZipFile(io.BytesIO(res.content)) as z:
-                # Expecting one html file
-                names = [n for n in z.namelist() if n.endswith('.html')]
-                if not names:
-                    return "<p>Error: No HTML file in Fichub zip.</p>"
+            try:
+                res = requests.get(html_url, headers={"User-Agent": "Scrollarr/1.0"}, timeout=30)
+                if res.status_code != 200:
+                    return f"<p>Error: Could not download Fichub HTML zip. Status: {res.status_code}</p>"
                 
-                with z.open(names[0]) as f:
-                    soup = BeautifulSoup(f.read(), 'html.parser')
+                # Unzip
+                with zipfile.ZipFile(io.BytesIO(res.content)) as z:
+                    # Expecting one html file
+                    names = [n for n in z.namelist() if n.endswith('.html')]
+                    if not names:
+                        return "<p>Error: No HTML file in Fichub zip.</p>"
                     
-                    # Fichub HTML structure: <h1>Title</h1> <h2>by Author</h2> <h2>Chapter 1</h2> <p>...</p> <h2>Chapter 2</h2> ...
-                    # We can split elements based on <h2>
-                    chapters_dict = {}
-                    for h2 in soup.find_all('h2'):
-                        text = h2.get_text(strip=True).lower()
-                        if text.startswith('chapter '):
-                            try:
-                                num_str = text.replace('chapter ', '').split()[0]
-                                current_idx = int(num_str)
-                            except:
-                                continue
-                            
-                            parent = h2.parent
-                            if parent and parent.name == 'div':
-                                chapters_dict[current_idx] = str(parent)
-                            else:
-                                # Fallback: collect siblings until next h2
-                                content = [str(h2)]
-                                node = h2.next_sibling
-                                while node and getattr(node, 'name', '') != 'h2':
-                                    content.append(str(node))
-                                    node = node.next_sibling
-                                chapters_dict[current_idx] = "".join(content)
+                    with z.open(names[0]) as f:
+                        soup = BeautifulSoup(f.read(), 'html.parser')
                         
-                    # If it's a single chapter story, there might not be a "Chapter 1" h2.
-                    if not chapters_dict:
-                        # Grab everything after h1 and h2(by Author)
-                        content = []
-                        past_header = False
-                        for child in soup.body.children:
-                            if child.name == 'h2' and getattr(child, 'text', '').startswith('by'):
-                                past_header = True
-                                continue
-                            if past_header:
-                                content.append(str(child))
-                        chapters_dict[1] = "".join(content)
-
-                    self._fichub_cache[story_id] = chapters_dict
+                        # Fichub HTML structure: <h1>Title</h1> <h2>by Author</h2> <h2>Chapter 1</h2> <p>...</p> <h2>Chapter 2</h2> ...
+                        # We can split elements based on <h2>
+                        chapters_dict = {}
+                        for h2 in soup.find_all('h2'):
+                            text = h2.get_text(strip=True).lower()
+                            if text.startswith('chapter '):
+                                try:
+                                    num_str = text.replace('chapter ', '').split()[0]
+                                    current_idx = int(num_str)
+                                except:
+                                    continue
+                                
+                                parent = h2.parent
+                                if parent and parent.name == 'div':
+                                    chapters_dict[current_idx] = str(parent)
+                                else:
+                                    # Fallback: collect siblings until next h2
+                                    content = [str(h2)]
+                                    node = h2.next_sibling
+                                    while node and getattr(node, 'name', '') != 'h2':
+                                        content.append(str(node))
+                                        node = node.next_sibling
+                                    chapters_dict[current_idx] = "".join(content)
+                            
+                        # If it's a single chapter story, there might not be a "Chapter 1" h2.
+                        if not chapters_dict:
+                            # Grab everything after h1 and h2(by Author)
+                            content = []
+                            past_header = False
+                            for child in soup.body.children:
+                                if child.name == 'h2' and getattr(child, 'text', '').startswith('by'):
+                                    past_header = True
+                                    continue
+                                if past_header:
+                                    content.append(str(child))
+                            chapters_dict[1] = "".join(content)
+    
+                        self._fichub_cache[story_id] = chapters_dict
+            except requests.exceptions.RequestException as e:
+                return f"<p>Error downloading from Fichub: {e}</p>"
+            except zipfile.BadZipFile:
+                return "<p>Error: Downloaded file from Fichub was not a valid zip archive.</p>"
+            except Exception as e:
+                return f"<p>Error processing Fichub zip: {e}</p>"
 
         chapter_html = self._fichub_cache.get(story_id, {}).get(chapter_idx)
         if not chapter_html:
@@ -190,7 +202,11 @@ class FanFictionSource(BaseSource):
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
             seen_urls = set()
-            for a in soup.select('a.result-url'):
+            for tr in soup.find_all('tr'):
+                a = tr.select_one('a.result-url') or tr.select_one('a.result-title')
+                if not a:
+                    continue
+                
                 href = a.get('href', '')
                 title_text = a.get_text(strip=True)
                 
@@ -201,14 +217,25 @@ class FanFictionSource(BaseSource):
                         base_url = match.group(1) + "/1"
                         if base_url not in seen_urls:
                             seen_urls.add(base_url)
-                            # Clean up title (remove "Chapter X" or ", a Stargate: SG-1 ...")
+                            # Clean up title
                             title = re.sub(r' Chapter \d+,.*$', '', title_text)
                             title = re.sub(r' \| FanFiction$', '', title)
+                            
+                            author = 'Unknown'
+                            # Try to find snippet in next row
+                            snippet_row = tr.find_next_sibling('tr', class_='result-snippet')
+                            if snippet_row:
+                                snippet_td = snippet_row.select_one('td.result-snippet')
+                                if snippet_td:
+                                    snippet = snippet_td.get_text(strip=True)
+                                    author_match = re.search(r'(?:By:?|by:?)\s*([^.]+)\.', snippet)
+                                    if author_match:
+                                        author = author_match.group(1).strip()
                             
                             results.append({
                                 'title': title,
                                 'url': base_url,
-                                'author': 'Unknown', # DDG doesn't cleanly provide author
+                                'author': author,
                                 'cover_url': None,
                                 'provider': 'FanFiction.net'
                             })

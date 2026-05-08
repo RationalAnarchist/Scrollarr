@@ -25,7 +25,11 @@ class DiscordSource(BaseSource):
         token = self._get_token()
         if not token:
             raise ValueError("DISCORD_TOKEN environment variable or discord_bot_token config is not set. Please set it to use the Discord source.")
-        return {"Authorization": f"Bot {token}"}
+        token = token.strip().strip('"\'')
+        return {
+            "Authorization": f"Bot {token}",
+            "User-Agent": "DiscordBot (https://github.com/RationalAnarchist/Scrollarr, 1.0.0)"
+        }
 
     def get_metadata(self, url: str) -> Dict:
         match = re.search(r'discord://(\d+)', url)

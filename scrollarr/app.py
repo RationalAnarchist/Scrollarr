@@ -846,14 +846,19 @@ async def get_discord_channels():
     if not token:
         raise HTTPException(status_code=400, detail="Discord bot token not configured in Settings.")
         
-    headers = {"Authorization": f"Bot {token}"}
+    token = token.strip().strip('"\'')
+    headers = {
+        "Authorization": f"Bot {token}",
+        "User-Agent": "DiscordBot (https://github.com/RationalAnarchist/Scrollarr, 1.0.0)"
+    }
     import requests
     
     try:
         # Get Guilds
         guilds_res = requests.get("https://discord.com/api/v10/users/@me/guilds", headers=headers)
         if guilds_res.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to fetch guilds. Check token validity.")
+            logger.error(f"Discord API Error (Guilds): {guilds_res.status_code} {guilds_res.text}")
+            raise HTTPException(status_code=400, detail=f"Failed to fetch guilds. Error: {guilds_res.text}")
             
         guilds = guilds_res.json()
         result = []

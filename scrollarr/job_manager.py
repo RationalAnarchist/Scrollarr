@@ -232,7 +232,11 @@ class JobManager:
         Checks for missing metadata in stories and attempts to retrieve it.
         """
         logger.info("Running scheduled metadata check...")
-        self.story_manager.fill_missing_metadata()
+        try:
+            self.story_manager.fill_missing_metadata()
+        finally:
+            from .browser_manager import BrowserManager
+            BrowserManager.close()
 
     def check_for_updates(self):
         """
@@ -268,6 +272,8 @@ class JobManager:
                     logger.error(f"Error updating story {story_id}: {e}")
         finally:
             self._is_checking_updates = False
+            from .browser_manager import BrowserManager
+            BrowserManager.close()
 
     def process_download_queue(self):
         """
@@ -327,6 +333,10 @@ class JobManager:
                     provider = self.story_manager.source_manager.get_provider_for_url(story.source_url)
                     if not provider:
                          raise ValueError(f"No provider found for story URL: {story.source_url}")
+
+                    import random
+                    import time
+                    time.sleep(random.uniform(1.5, 3.5))
 
                     content = provider.get_chapter_content(chapter.source_url)
 
@@ -478,3 +488,6 @@ class JobManager:
                 session.close()
 
         logger.info("Download queue empty or processing stopped.")
+        
+        from .browser_manager import BrowserManager
+        BrowserManager.close()

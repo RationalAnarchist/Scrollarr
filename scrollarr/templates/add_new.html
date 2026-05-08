@@ -29,6 +29,11 @@
             </label>
             <div class="flex gap-2">
                 <input type="text" id="url-input" placeholder="Enter Story URL (Royal Road, AO3, Questionable Questing)" class="flex-1 p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors">
+                <button id="browse-discord-btn" type="button" onclick="openDiscordPicker()" class="bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold py-2 px-4 rounded transition-colors flex items-center justify-center min-w-[40px]" title="Browse Discord Channels">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M13.545 2.907a13.227 13.227 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.19 12.19 0 0 0-3.658 0 8.258 8.258 0 0 0-.412-.833.051.051 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.041.041 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032c.001.014.01.028.021.037a13.276 13.276 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019c.308-.42.582-.863.818-1.329a.05.05 0 0 0-.01-.059.051.051 0 0 0-.018-.011 8.875 8.875 0 0 1-1.248-.595.05.05 0 0 1-.02-.066.051.051 0 0 1 .015-.019c.084-.063.168-.129.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.052.052 0 0 1 .053.007c.08.066.164.132.248.195a.051.051 0 0 1-.004.085 8.254 8.254 0 0 1-1.249.594.05.05 0 0 0-.03.03.052.052 0 0 0 .02.059c.238.467.513.91.82 1.329a.05.05 0 0 0 .056.019 13.235 13.235 0 0 0 4.001-2.02.049.049 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.034.034 0 0 0-.02-.019Zm-8.198 7.307c-.789 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612Zm5.316 0c-.788 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.451.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612Z"/>
+                    </svg>
+                </button>
                 <button id="search-btn" onclick="lookupStory()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded transition-colors flex items-center justify-center min-w-[100px]">
                     Search
                 </button>
@@ -71,6 +76,30 @@
         </div>
 
         <p id="error-msg" class="text-red-400 mt-4 hidden bg-red-900/20 p-3 rounded border border-red-800"></p>
+    </div>
+
+    <!-- Discord Picker Modal -->
+    <div id="discord-modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center z-50 animate-fade-in px-4">
+        <div class="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg overflow-hidden border border-gray-600 flex flex-col max-h-[80vh]">
+            <div class="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-900">
+                <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#5865F2" viewBox="0 0 16 16">
+                        <path d="M13.545 2.907a13.227 13.227 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.19 12.19 0 0 0-3.658 0 8.258 8.258 0 0 0-.412-.833.051.051 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.041.041 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032c.001.014.01.028.021.037a13.276 13.276 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019c.308-.42.582-.863.818-1.329a.05.05 0 0 0-.01-.059.051.051 0 0 0-.018-.011 8.875 8.875 0 0 1-1.248-.595.05.05 0 0 1-.02-.066.051.051 0 0 1 .015-.019c.084-.063.168-.129.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.052.052 0 0 1 .053.007c.08.066.164.132.248.195a.051.051 0 0 1-.004.085 8.254 8.254 0 0 1-1.249.594.05.05 0 0 0-.03.03.052.052 0 0 0 .02.059c.238.467.513.91.82 1.329a.05.05 0 0 0 .056.019 13.235 13.235 0 0 0 4.001-2.02.049.049 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.034.034 0 0 0-.02-.019Zm-8.198 7.307c-.789 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612Zm5.316 0c-.788 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.451.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612Z"/>
+                    </svg>
+                    Select Discord Channel
+                </h3>
+                <button type="button" onclick="closeDiscordPicker()" class="text-gray-400 hover:text-white transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div id="discord-modal-content" class="p-4 overflow-y-auto flex-1 custom-scrollbar">
+                <div id="discord-loading" class="flex flex-col items-center justify-center py-8">
+                    <svg class="animate-spin h-8 w-8 text-[#5865F2] mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <p class="text-gray-400">Loading servers and channels...</p>
+                </div>
+                <div id="discord-servers" class="hidden space-y-4"></div>
+            </div>
+        </div>
     </div>
     {% endif %}
 {% endblock %}
@@ -177,6 +206,69 @@
                 document.getElementById('error-msg').classList.remove('hidden');
                 btn.disabled = false;
                 btn.innerHTML = originalText;
+            }
+        }
+
+        function closeDiscordPicker() {
+            document.getElementById('discord-modal').classList.add('hidden');
+        }
+
+        async function openDiscordPicker() {
+            const modal = document.getElementById('discord-modal');
+            const loading = document.getElementById('discord-loading');
+            const serversDiv = document.getElementById('discord-servers');
+            
+            modal.classList.remove('hidden');
+            loading.classList.remove('hidden');
+            serversDiv.classList.add('hidden');
+            serversDiv.innerHTML = '';
+            
+            try {
+                const res = await fetch('/api/discord/channels');
+                if (!res.ok) {
+                    const errData = await res.json();
+                    throw new Error(errData.detail || 'Failed to load channels');
+                }
+                const data = await res.json();
+                
+                if (data.length === 0) {
+                    serversDiv.innerHTML = '<p class="text-gray-400 text-center py-4">No servers or text channels found for this bot.</p>';
+                } else {
+                    data.forEach(guild => {
+                        const guildDiv = document.createElement('div');
+                        guildDiv.className = 'bg-gray-700/50 rounded-lg p-3 border border-gray-600';
+                        
+                        const guildName = document.createElement('h4');
+                        guildName.className = 'font-bold text-white mb-2 pb-2 border-b border-gray-600';
+                        guildName.innerText = guild.guild_name;
+                        guildDiv.appendChild(guildName);
+                        
+                        const channelsList = document.createElement('div');
+                        channelsList.className = 'space-y-1 max-h-48 overflow-y-auto pr-2 custom-scrollbar';
+                        
+                        guild.channels.forEach(channel => {
+                            const btn = document.createElement('button');
+                            btn.className = 'w-full text-left px-3 py-2 rounded hover:bg-[#5865F2] hover:text-white text-gray-300 transition-colors flex items-center gap-2 group';
+                            btn.innerHTML = `<span class="text-gray-500 group-hover:text-blue-200">#</span> ${channel.name.replace('#', '')}`;
+                            btn.onclick = () => {
+                                document.getElementById('url-input').value = `discord://${channel.id}`;
+                                closeDiscordPicker();
+                                lookupStory();
+                            };
+                            channelsList.appendChild(btn);
+                        });
+                        
+                        guildDiv.appendChild(channelsList);
+                        serversDiv.appendChild(guildDiv);
+                    });
+                }
+                
+                loading.classList.add('hidden');
+                serversDiv.classList.remove('hidden');
+            } catch (err) {
+                loading.classList.add('hidden');
+                serversDiv.classList.remove('hidden');
+                serversDiv.innerHTML = `<div class="bg-red-900/20 border border-red-800 text-red-400 p-4 rounded text-center">${err.message}</div>`;
             }
         }
 

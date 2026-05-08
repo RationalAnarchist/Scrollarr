@@ -833,6 +833,48 @@ async def regenerate_api_key():
     config_manager.set("api_key", new_key)
     return {"api_key": new_key}
 
+@app.get("/api/discord/channels")
+async def get_discord_channels():
+    """Fetch available Discord channels using the bot token."""
+    token = config_manager.get('discord_bot_token', os.getenv('SCROLLARR_DISCORD_TOKEN', ''))
+    if not token:
+        raise HTTPException(status_code=400, detail="Discord bot token not configured in Settings.")
+        
+    headers = {"Authorization": f"Bot {token}"}
+    import requests
+    
+    try:
+        # Get Guilds
+        guilds_res = requests.get("https://discord.com/api/v10/users/@me/guilds", headers=headers)
+        if guilds_res.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to fetch guilds. Check token validity.")
+            
+        guilds = guilds_res.json()
+        result = []
+        
+        for guild in guilds:
+            g_id = guild['id']
+            g_name = guild['name']
+            
+            # Get Channels
+            channels_res = requests.get(f"https://discord.com/api/v10/guilds/{g_id}/channels", headers=headers)
+            if channels_res.status_code == 200:
+                channels = channels_res.json()
+                # Type 0 is GUILD_TEXT, Type 5 is GUILD_ANNOUNCEMENT
+                text_channels = [{"id": c['id'], "name": f"#{c['name']}"} for c in channels if c.get('type') in (0, 5)]
+                if text_channels:
+                    result.append({
+                        "guild_id": g_id,
+                        "guild_name": g_name,
+                        "channels": sorted(text_channels, key=lambda x: x['name'])
+                    })
+                    
+        return sorted(result, key=lambda x: x['guild_name'])
+        
+    except requests.RequestException as e:
+        logger.error(f"Error communicating with Discord: {e}")
+        raise HTTPException(status_code=500, detail="Failed to communicate with Discord API.")
+
 @app.get("/api/sources")
 async def get_sources(db: Session = Depends(get_db)):
     """Get all sources."""

@@ -23,6 +23,14 @@
                 <p>Naming settings have been moved to the <a href="/settings/naming" class="text-blue-400 hover:text-blue-300">Naming Settings</a> page.</p>
             </div>
 
+            <div class="mb-6">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="theme-select">Theme</label>
+                <select id="theme-select" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors" onchange="toggleTheme(this.value)">
+                    <option value="dark">Dark</option>
+                    <option value="light">Light</option>
+                </select>
+            </div>
+
             <h2 class="text-xl font-bold mb-4 text-gray-200 mt-8">Security</h2>
             <div class="mb-6">
                 <label class="block text-gray-300 text-sm font-bold mb-2" for="api-key">API Key</label>
@@ -128,8 +136,19 @@
     <script>
         let fullSettings = {};
 
+        function toggleTheme(theme) {
+            localStorage.setItem('theme', theme);
+            if (theme === 'light') {
+                document.documentElement.classList.remove('dark');
+            } else {
+                document.documentElement.classList.add('dark');
+            }
+        }
+
         async function loadSettings() {
             try {
+                document.getElementById('theme-select').value = localStorage.getItem('theme') || 'dark';
+
                 const response = await fetch('/api/settings');
                 if (!response.ok) throw new Error('Failed to load settings');
                 fullSettings = await response.json();

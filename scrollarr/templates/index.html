@@ -1,12 +1,28 @@
 {% extends "base.html" %}
 
-{% block title %}Library - Scrollarr{% endblock %}
+{% block title %}Library - Scrollarr
+    <!-- Bulk Actions Toolbar -->
+    <div id="bulk-toolbar" class="fixed bottom-0 left-0 right-0 md:left-64 bg-gray-800 border-t border-gray-700 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)] z-40 transform translate-y-full transition-transform duration-300 flex justify-between items-center">
+        <div class="text-white font-bold">
+            <span id="bulk-count">0</span> Selected
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <button onclick="executeBulkAction('update')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Update</button>
+            <button onclick="executeBulkAction('pause')" class="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Pause</button>
+            <button onclick="executeBulkAction('resume')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Resume</button>
+            <button onclick="executeBulkAction('delete')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded shadow text-sm">Delete</button>
+            <button onclick="clearSelection()" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded md:ml-4 shadow text-sm">Cancel</button>
+        </div>
+    </div>
+
+{% endblock %}
 
 {% block content %}
     <header class="flex justify-between items-center mb-8">
         <h1 class="text-3xl font-bold">Library</h1>
         <div class="flex items-center gap-4">
             <div class="relative group">
+            <input type="checkbox" value="{{ story.id }}" class="story-checkbox absolute top-2 left-2 z-20 w-5 h-5 bg-gray-700 border-gray-600 rounded text-blue-500 focus:ring-blue-500 cursor-pointer hidden group-hover:block checked:block">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-400 cursor-help hover:text-white transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -44,6 +60,7 @@
     <div id="story-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
         {% for story in stories %}
         <div class="relative group">
+            <input type="checkbox" value="{{ story.id }}" class="story-checkbox absolute top-2 left-2 z-20 w-5 h-5 bg-gray-700 border-gray-600 rounded text-blue-500 focus:ring-blue-500 cursor-pointer hidden group-hover:block checked:block">
             <a href="/story/{{ story.id }}" class="block bg-gray-800 rounded-lg overflow-hidden hover:ring-2 hover:ring-blue-500 transition relative shadow-lg h-full">
                 <div class="relative aspect-[2/3] overflow-hidden">
                     <img src="{{ story.cover_path or 'https://via.placeholder.com/300x450?text=No+Cover' }}" alt="{{ story.title }}" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-300">
@@ -84,6 +101,9 @@
         <table class="w-full text-left text-gray-300">
             <thead class="bg-gray-700 text-gray-100 uppercase text-sm font-semibold">
                 <tr>
+                    <th class="px-4 py-4 w-12 text-center">
+                        <input type="checkbox" id="select-all" class="w-5 h-5 bg-gray-700 border-gray-600 rounded text-blue-500 focus:ring-blue-500 cursor-pointer">
+                    </th>
                     <th class="px-6 py-4 cursor-pointer hover:bg-gray-600 transition-colors" onclick="sortTable(0)">
                         Title <span id="sort-icon-0" class="ml-1 text-gray-400"></span>
                     </th>
@@ -106,6 +126,9 @@
             <tbody id="stories-tbody" class="divide-y divide-gray-700">
                 {% for story in stories %}
                 <tr class="hover:bg-gray-700/50 transition-colors group">
+                    <td class="px-4 py-4 text-center">
+                        <input type="checkbox" value="{{ story.id }}" class="story-checkbox w-5 h-5 bg-gray-700 border-gray-600 rounded text-blue-500 focus:ring-blue-500 cursor-pointer">
+                    </td>
                     <td class="px-6 py-4 font-medium text-white" data-sort-value="{{ story.title }}">
                         <div class="flex items-center gap-3">
                             <img src="{{ story.cover_path or 'https://via.placeholder.com/48x72?text=No+Cover' }}" alt="" class="w-8 h-12 object-cover rounded shadow-sm">
@@ -274,6 +297,78 @@
 
 {% block scripts %}
     <script>
+        
+        // Bulk Actions Logic
+        const checkboxes = document.querySelectorAll('.story-checkbox');
+        const selectAll = document.getElementById('select-all');
+        const bulkToolbar = document.getElementById('bulk-toolbar');
+        const bulkCount = document.getElementById('bulk-count');
+
+        function updateBulkToolbar() {
+            const checked = document.querySelectorAll('.story-checkbox:checked');
+            // Since there are 2 checkboxes per story (grid/list), divide by 2 or use Set
+            const ids = new Set(Array.from(checked).map(cb => cb.value));
+            
+            if (ids.size > 0) {
+                bulkCount.innerText = ids.size;
+                bulkToolbar.classList.remove('translate-y-full');
+            } else {
+                bulkToolbar.classList.add('translate-y-full');
+                if (selectAll) selectAll.checked = false;
+            }
+        }
+
+        if (selectAll) {
+            selectAll.addEventListener('change', (e) => {
+                checkboxes.forEach(cb => {
+                    cb.checked = e.target.checked;
+                });
+                updateBulkToolbar();
+            });
+        }
+
+        checkboxes.forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                const id = e.target.value;
+                const twins = document.querySelectorAll(`.story-checkbox[value="${id}"]`);
+                twins.forEach(twin => twin.checked = e.target.checked);
+                updateBulkToolbar();
+            });
+        });
+
+        function clearSelection() {
+            checkboxes.forEach(cb => cb.checked = false);
+            if (selectAll) selectAll.checked = false;
+            updateBulkToolbar();
+        }
+
+        async function executeBulkAction(action) {
+            const checked = document.querySelectorAll('.story-checkbox:checked');
+            const ids = Array.from(new Set(Array.from(checked).map(cb => parseInt(cb.value))));
+            if (ids.length === 0) return;
+
+            let deleteContent = false;
+            if (action === 'delete') {
+                if (!confirm(`Are you sure you want to delete ${ids.length} stories?`)) return;
+                deleteContent = confirm("Do you also want to delete the downloaded files for these stories?");
+            }
+
+            try {
+                const response = await fetch('/api/stories/bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: action, story_ids: ids, delete_content: deleteContent })
+                });
+
+                if (!response.ok) throw new Error("Bulk action failed");
+                const data = await response.json();
+                
+                window.location.reload();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
         // Sort Table Logic
         let sortDirection = {0: 'asc'}; // Store sort direction for each column. Title (0) is default Asc.
 

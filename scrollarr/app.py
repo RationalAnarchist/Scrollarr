@@ -995,6 +995,40 @@ async def get_progress(db: Session = Depends(get_db)):
         })
     return result
 
+@app.post("/api/stories/bulk")
+def bulk_action(payload: dict):
+    """Perform a bulk action on multiple stories."""
+    action = payload.get("action")
+    story_ids = payload.get("story_ids", [])
+    delete_content = payload.get("delete_content", False)
+    
+    if not action or not story_ids:
+        raise HTTPException(status_code=400, detail="Action and story_ids required")
+        
+    with get_db() as session:
+        stories = session.query(Story).filter(Story.id.in_(story_ids)).all()
+        for story in stories:
+            try:
+                if action == "update":
+                    story_manager.force_update_story(story.id)
+                elif action == "pause":
+                    story.is_monitored = False
+                    story.status = "Paused"
+                elif action == "resume":
+                    story.is_monitored = True
+                    story.status = "Monitoring"
+                elif action == "delete":
+                    story_manager.delete_story(story.id, delete_content=delete_content)
+            except Exception as e:
+                logger.error(f"Bulk action {action} failed on story {story.id}: {e}")
+        
+        session.commit()
+        
+    if job_manager:
+        job_manager.trigger_queue_check()
+
+    return {"message": f"Successfully performed {action} on {len(stories)} stories"}
+
 @app.post("/api/story/{story_id}/update")
 def update_story(story_id: int):
     """Force update a single story."""

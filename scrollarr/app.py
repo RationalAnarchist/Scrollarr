@@ -268,6 +268,7 @@ class SettingsRequest(BaseModel):
     auth_username: Optional[str] = None
     auth_password: Optional[str] = None
     local_auth_disabled: bool = False
+    discord_bot_token: Optional[str] = None
 
 class ProfileCreate(BaseModel):
     name: str
@@ -780,6 +781,8 @@ async def get_settings():
     # Mask secrets
     config['auth_password'] = ""
     config['session_secret'] = ""
+    if config.get('discord_bot_token'):
+        config['discord_bot_token'] = "********"
     return config
 
 @app.post("/api/settings")
@@ -809,6 +812,9 @@ async def update_settings(settings: SettingsRequest):
             "local_auth_disabled": settings.local_auth_disabled,
         }
 
+        if settings.discord_bot_token is not None and settings.discord_bot_token != "********":
+            updates["discord_bot_token"] = settings.discord_bot_token
+
         if settings.auth_username:
              updates["auth_username"] = settings.auth_username
 
@@ -832,6 +838,87 @@ async def regenerate_api_key():
     new_key = str(uuid.uuid4())
     config_manager.set("api_key", new_key)
     return {"api_key": new_key}
+
+@app.get("/api/discord/guilds")
+async def get_discord_guilds():
+    """Fetch available Discord guilds using the token."""
+    token = config_manager.get('discord_bot_token', os.getenv('SCROLLARR_DISCORD_TOKEN', ''))
+    if not token:
+        raise HTTPException(status_code=400, detail="Discord bot token not configured in Settings.")
+        
+    token = token.strip().strip('"\'')
+    
+    headers_user = {
+        "Authorization": token,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    headers_bot = {
+        "Authorization": f"Bot {token}",
+        "User-Agent": "DiscordBot (https://github.com/RationalAnarchist/Scrollarr, 1.0.0)"
+    }
+    
+    import requests
+    
+    def make_discord_req(url):
+        res = requests.get(url, headers=headers_user)
+        if res.status_code == 401:
+            res = requests.get(url, headers=headers_bot)
+        return res
+    
+    try:
+        # Get Guilds (we can use limit=200 to ensure we get up to 200 servers)
+        guilds_res = make_discord_req("https://discord.com/api/v10/users/@me/guilds?limit=200")
+        if guilds_res.status_code != 200:
+            logger.error(f"Discord API Error (Guilds): {guilds_res.status_code} {guilds_res.text}")
+            raise HTTPException(status_code=400, detail=f"Failed to fetch guilds. Error: {guilds_res.text}")
+            
+        guilds = guilds_res.json()
+        result = [{"id": g['id'], "name": g['name']} for g in guilds]
+        return sorted(result, key=lambda x: x['name'])
+        
+    except requests.RequestException as e:
+        logger.error(f"Error communicating with Discord API: {e}")
+        raise HTTPException(status_code=500, detail="Failed to communicate with Discord API.")
+
+@app.get("/api/discord/guilds/{guild_id}/channels")
+async def get_discord_guild_channels(guild_id: str):
+    """Fetch channels for a specific guild."""
+    token = config_manager.get('discord_bot_token', os.getenv('SCROLLARR_DISCORD_TOKEN', ''))
+    if not token:
+        raise HTTPException(status_code=400, detail="Token not configured.")
+        
+    token = token.strip().strip('"\'')
+    
+    headers_user = {
+        "Authorization": token,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    headers_bot = {
+        "Authorization": f"Bot {token}",
+        "User-Agent": "DiscordBot (https://github.com/RationalAnarchist/Scrollarr, 1.0.0)"
+    }
+    
+    import requests
+    
+    def make_discord_req(url):
+        res = requests.get(url, headers=headers_user)
+        if res.status_code == 401:
+            res = requests.get(url, headers=headers_bot)
+        return res
+        
+    try:
+        channels_res = make_discord_req(f"https://discord.com/api/v10/guilds/{guild_id}/channels")
+        if channels_res.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to fetch channels. Discord may have rate-limited this request.")
+            
+        channels = channels_res.json()
+        # Type 0 is GUILD_TEXT, Type 5 is GUILD_ANNOUNCEMENT
+        text_channels = [{"id": c['id'], "name": f"#{c['name']}"} for c in channels if c.get('type') in (0, 5)]
+        return sorted(text_channels, key=lambda x: x['name'])
+        
+    except requests.RequestException as e:
+        logger.error(f"Error fetching channels: {e}")
+        raise HTTPException(status_code=500, detail="API communication failed.")
 
 @app.get("/api/sources")
 async def get_sources(db: Session = Depends(get_db)):

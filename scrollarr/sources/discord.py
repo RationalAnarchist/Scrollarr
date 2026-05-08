@@ -57,7 +57,7 @@ class DiscordSource(BaseSource):
                     'author': 'Discord Bot',
                     'description': data.get('topic', f"Automated EPUB downloads from Discord channel #{channel_name}"),
                     'cover_url': None,
-                    'tags': ['discord'],
+                    'tags': 'discord',
                     'rating': None,
                     'language': 'English',
                     'publication_status': 'Ongoing'

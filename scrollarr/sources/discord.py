@@ -3,6 +3,10 @@ import os
 import requests
 import tempfile
 import ebooklib
+import base64
+import urllib.parse
+import posixpath
+import mimetypes
 from ebooklib import epub
 from bs4 import BeautifulSoup
 from typing import List, Dict, Optional
@@ -142,11 +146,43 @@ class DiscordSource(BaseSource):
         try:
             book = epub.read_epub(path, options={'ignore_ncx': True})
             html_parts = []
+            
+            items_by_href = {item.file_name: item for item in book.get_items()}
+            
             for item_id, _ in book.spine:
                 item = book.get_item_with_id(item_id)
                 if item and item.get_type() == ebooklib.ITEM_DOCUMENT:
                     content = item.get_content()
                     soup = BeautifulSoup(content, 'html.parser')
+                    
+                    for img in soup.find_all(['img', 'image']):
+                        src = img.get('src') or img.get('xlink:href')
+                        if not src:
+                            continue
+                            
+                        doc_path = item.file_name
+                        doc_dir = posixpath.dirname(doc_path)
+                        abs_src = posixpath.normpath(posixpath.join(doc_dir, src))
+                        
+                        img_item = items_by_href.get(abs_src)
+                        if not img_item:
+                            decoded_src = urllib.parse.unquote(abs_src)
+                            img_item = items_by_href.get(decoded_src)
+                            
+                        if img_item:
+                            img_data = img_item.get_content()
+                            mime_type, _ = mimetypes.guess_type(abs_src)
+                            if not mime_type:
+                                mime_type = 'image/jpeg'
+                            
+                            b64_data = base64.b64encode(img_data).decode('utf-8')
+                            data_uri = f"data:{mime_type};base64,{b64_data}"
+                            
+                            if img.name == 'img':
+                                img['src'] = data_uri
+                            else:
+                                img['xlink:href'] = data_uri
+
                     body = soup.body
                     if body:
                         html_parts.append(body.decode_contents())

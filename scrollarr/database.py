@@ -6,11 +6,13 @@ from sqlalchemy.sql import func
 from typing import Optional
 from .core_logic import SourceManager
 from .sources.royalroad import RoyalRoadSource
+from .sources.patreon import PatreonSource
 from .config import config_manager
 import alembic.config
 import alembic.command
 
 Base = declarative_base()
+
 
 class Story(Base):
     __tablename__ = 'stories'
@@ -174,6 +176,7 @@ def sync_story(url: str, session: Optional[Session] = None):
     # 1. Setup SourceManager
     manager = SourceManager()
     manager.register_provider(RoyalRoadSource())
+    manager.register_provider(PatreonSource())
 
     # 2. Get Provider
     provider = manager.get_provider_for_url(url)

@@ -485,19 +485,21 @@ class StoryManager:
                         tags_str = ','.join(tags_list) if tags_list else None
 
                         if chap_data['url'] not in existing_chapter_urls:
+                            has_access = chap_data.get('has_access', True)
                             new_chapter = Chapter(
                                 title=chap_data['title'],
                                 source_url=chap_data['url'],
                                 story_id=story.id,
                                 index=idx,
-                                status='pending',
+                                status='pending' if has_access else 'locked',
                                 published_date=published_date,
                                 volume_title=volume_title,
                                 volume_number=volume_number,
                                 tags=tags_str
                             )
                             session.add(new_chapter)
-                            new_chapters_count += 1
+                            if has_access:
+                                new_chapters_count += 1
                         else:
                              # Update date for existing chapters if missing
                              for ec in story.chapters:
@@ -513,6 +515,12 @@ class StoryManager:
                                          ec.volume_number = volume_number
                                      if tags_str and ec.tags != tags_str:
                                          ec.tags = tags_str
+                                     
+                                     # Transition from locked to pending if access granted now
+                                     has_access = chap_data.get('has_access', True)
+                                     if ec.status == 'locked' and has_access:
+                                         ec.status = 'pending'
+                                         new_chapters_count += 1
                                      break
 
                     story.last_checked = func.now()
@@ -564,7 +572,8 @@ class StoryManager:
 
             missing_chapters = session.query(Chapter).filter(
                 Chapter.story_id == story_id,
-                Chapter.is_downloaded == False
+                Chapter.is_downloaded == False,
+                Chapter.status != 'locked'
             ).all()
 
             if not missing_chapters:
@@ -881,19 +890,21 @@ class StoryManager:
                 tags_str = ','.join(tags_list) if tags_list else None
 
                 if chap_data['url'] not in existing_chapter_urls:
+                    has_access = chap_data.get('has_access', True)
                     new_chapter = Chapter(
                         title=chap_data['title'],
                         source_url=chap_data['url'],
                         story_id=story.id,
                         index=idx,
-                        status='pending',
+                        status='pending' if has_access else 'locked',
                         published_date=published_date,
                         volume_title=volume_title,
                         volume_number=volume_number,
                         tags=tags_str
                     )
                     session.add(new_chapter)
-                    new_chapters_count += 1
+                    if has_access:
+                        new_chapters_count += 1
                 else:
                     # Update existing
                      for ec in story.chapters:
@@ -908,6 +919,12 @@ class StoryManager:
                                  ec.volume_number = volume_number
                              if tags_str and ec.tags != tags_str:
                                  ec.tags = tags_str
+                             
+                             # Transition from locked to pending if access granted now
+                             has_access = chap_data.get('has_access', True)
+                             if ec.status == 'locked' and has_access:
+                                 ec.status = 'pending'
+                                 new_chapters_count += 1
                              break
 
             story.last_checked = func.now()

@@ -34,6 +34,19 @@
                 <p class="text-xs text-gray-500 mb-2">Example Configuration:</p>
                 <pre class="bg-gray-900 p-2 rounded text-xs text-green-400 mb-4 overflow-x-auto">{"cookies": "_session_id=...; user_credentials=..."}</pre>
             </div>
+            <div id="patreon-instructions" class="hidden">
+                <p class="text-sm text-gray-400 mb-2">
+                    Patreon requires authentication to access paywalled or tier-locked content.
+                </p>
+                <ol class="list-decimal list-inside text-xs text-gray-400 mb-4 space-y-1">
+                    <li>Log in to Patreon in your web browser.</li>
+                    <li>Open Developer Tools (F12) -> Application/Storage -> Cookies -> patreon.com.</li>
+                    <li>Locate and copy the value for the <code>session_id</code> cookie.</li>
+                    <li>Format it as a JSON object below.</li>
+                </ol>
+                <p class="text-xs text-gray-500 mb-2">Example Configuration:</p>
+                <pre class="bg-gray-900 p-2 rounded text-xs text-green-400 mb-4 overflow-x-auto">{"session_id": "your_session_id_here"}</pre>
+            </div>
             <div id="generic-instructions" class="hidden">
                  <p class="text-sm text-gray-400 mb-4">
                     Enter configuration as JSON key-value pairs.
@@ -103,9 +116,15 @@
         // Show specific instructions
         if (key === 'ao3') {
             document.getElementById('ao3-instructions').classList.remove('hidden');
+            document.getElementById('patreon-instructions').classList.add('hidden');
+            document.getElementById('generic-instructions').classList.add('hidden');
+        } else if (key === 'patreon') {
+            document.getElementById('ao3-instructions').classList.add('hidden');
+            document.getElementById('patreon-instructions').classList.remove('hidden');
             document.getElementById('generic-instructions').classList.add('hidden');
         } else {
             document.getElementById('ao3-instructions').classList.add('hidden');
+            document.getElementById('patreon-instructions').classList.add('hidden');
             document.getElementById('generic-instructions').classList.remove('hidden');
         }
 

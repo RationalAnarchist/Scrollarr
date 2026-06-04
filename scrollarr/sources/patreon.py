@@ -131,19 +131,29 @@ class PatreonSource(BaseSource):
             posts_url = f"/api/posts?filter[campaign_id]={campaign_id}&filter[is_draft]=false&sort=-published_at"
 
             while posts_url:
-                response_data = page.evaluate(f"""
-                    async () => {{
-                        try {{
-                            const response = await fetch('{posts_url}');
-                            if (!response.ok) {{
-                                return {{ error: 'HTTP error', status: response.status, text: await response.text().then(t => t.slice(0, 200)) }};
+                retries = 3
+                response_data = None
+                while retries > 0:
+                    response_data = page.evaluate(f"""
+                        async () => {{
+                            try {{
+                                const response = await fetch('{posts_url}');
+                                if (!response.ok) {{
+                                    return {{ error: 'HTTP error', status: response.status, text: await response.text().then(t => t.slice(0, 200)) }};
+                                }}
+                                return await response.json();
+                            }} catch (e) {{
+                                return {{ error: e.toString() }};
                             }}
-                            return await response.json();
-                        }} catch (e) {{
-                            return {{ error: e.toString() }};
                         }}
-                    }}
-                """)
+                    """)
+
+                    if isinstance(response_data, dict) and response_data.get('status') == 429:
+                        logger.warning(f"Patreon API returned 429. Retrying in 3 seconds... ({retries} retries left)")
+                        page.wait_for_timeout(3000)
+                        retries -= 1
+                    else:
+                        break
 
                 if 'error' in response_data:
                     logger.error(f"Patreon API returned error in get_chapter_list: {response_data.get('error')} (Status: {response_data.get('status')}, Text: {response_data.get('text')})")
@@ -182,6 +192,7 @@ class PatreonSource(BaseSource):
                 # Check for next page
                 next_link = response_data.get('links', {}).get('next')
                 if next_link:
+                    page.wait_for_timeout(1500)  # Polite delay between page requests
                     if 'patreon.com' in next_link:
                         idx = next_link.find('/api/')
                         if idx != -1:

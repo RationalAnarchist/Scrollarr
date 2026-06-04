@@ -1,5 +1,6 @@
 import re
 import json
+import html as html_esc
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -381,7 +382,7 @@ class PatreonSource(BaseSource):
             return f"<li>{child_html}</li>"
 
         elif node_type == "text":
-            text = doc.get("text", "")
+            text = html_esc.escape(doc.get("text", ""))
             for mark in doc.get("marks", []):
                 mark_type = mark.get("type")
                 if mark_type == "bold":

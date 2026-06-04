@@ -124,7 +124,7 @@ class TestPatreonSource(unittest.TestCase):
                     "content": [
                         {
                             "type": "text",
-                            "text": "Hello world from ProseMirror"
+                            "text": "Hello world from <<ProseMirror>>"
                         }
                     ]
                 }
@@ -141,7 +141,7 @@ class TestPatreonSource(unittest.TestCase):
         }
 
         content = self.patreon.get_chapter_content("https://www.patreon.com/posts/111")
-        self.assertIn("<p>Hello world from ProseMirror</p>", content)
+        self.assertIn("<p>Hello world from &lt;&lt;ProseMirror&gt;&gt;</p>", content)
 
     @patch('scrollarr.browser_manager.BrowserManager.get_page')
     def test_get_chapter_content_locked(self, mock_get_page):

@@ -250,14 +250,15 @@ class PatreonSource(BaseSource):
             """)
 
             if 'error' in response_data:
-                logger.error(f"Patreon API returned error in get_chapter_content: {response_data.get('error')} (Status: {response_data.get('status')}, Text: {response_data.get('text')})")
-                return f"<p><strong>[Fetch Error]</strong> Failed to retrieve content from Patreon (Status: {response_data.get('status')}).</p>"
+                err_msg = f"Patreon API returned error in get_chapter_content: {response_data.get('error')} (Status: {response_data.get('status')})"
+                logger.error(err_msg)
+                raise Exception(err_msg)
 
             data = response_data.get('data', {})
             attrs = data.get('attributes', {})
 
             if not attrs.get('current_user_can_view', False):
-                return "<p><strong>[Content Locked]</strong> You do not have access to this paywalled Patreon post.</p>"
+                raise Exception(f"Patreon post is locked (current_user_can_view is False) for post {post_id}")
 
             # Process HTML content if present, or parse content_json_string
             content_html = attrs.get('content')
@@ -292,7 +293,7 @@ class PatreonSource(BaseSource):
 
         except Exception as e:
             logger.error(f"Error fetching Patreon post content for {chapter_url}: {e}")
-            return ""
+            raise e
 
     def search(self, query: str) -> List[Dict]:
         # Searching Patreon creators

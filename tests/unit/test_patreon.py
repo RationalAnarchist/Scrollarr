@@ -156,8 +156,9 @@ class TestPatreonSource(unittest.TestCase):
             }
         }
 
-        content = self.patreon.get_chapter_content("https://www.patreon.com/posts/222")
-        self.assertIn("Content Locked", content)
+        with self.assertRaises(Exception) as ctx:
+            self.patreon.get_chapter_content("https://www.patreon.com/posts/222")
+        self.assertIn("Patreon post is locked", str(ctx.exception))
 
 if __name__ == '__main__':
     unittest.main()

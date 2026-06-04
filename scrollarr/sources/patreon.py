@@ -133,10 +133,21 @@ class PatreonSource(BaseSource):
             while posts_url:
                 response_data = page.evaluate(f"""
                     async () => {{
-                        const response = await fetch('{posts_url}');
-                        return await response.json();
+                        try {{
+                            const response = await fetch('{posts_url}');
+                            if (!response.ok) {{
+                                return {{ error: 'HTTP error', status: response.status, text: await response.text().then(t => t.slice(0, 200)) }};
+                            }}
+                            return await response.json();
+                        }} catch (e) {{
+                            return {{ error: e.toString() }};
+                        }}
                     }}
                 """)
+
+                if 'error' in response_data:
+                    logger.error(f"Patreon API returned error in get_chapter_list: {response_data.get('error')} (Status: {response_data.get('status')}, Text: {response_data.get('text')})")
+                    break
 
                 if 'data' not in response_data:
                     break
@@ -214,10 +225,21 @@ class PatreonSource(BaseSource):
             # Fetch specific post detail via API using the page session
             response_data = page.evaluate(f"""
                 async () => {{
-                    const response = await fetch('{detail_url}');
-                    return await response.json();
+                    try {{
+                        const response = await fetch('{detail_url}');
+                        if (!response.ok) {{
+                            return {{ error: 'HTTP error', status: response.status, text: await response.text().then(t => t.slice(0, 200)) }};
+                        }}
+                        return await response.json();
+                    }} catch (e) {{
+                        return {{ error: e.toString() }};
+                    }}
                 }}
             """)
+
+            if 'error' in response_data:
+                logger.error(f"Patreon API returned error in get_chapter_content: {response_data.get('error')} (Status: {response_data.get('status')}, Text: {response_data.get('text')})")
+                return f"<p><strong>[Fetch Error]</strong> Failed to retrieve content from Patreon (Status: {response_data.get('status')}).</p>"
 
             data = response_data.get('data', {})
             attrs = data.get('attributes', {})

@@ -240,19 +240,21 @@ class StoryManager:
                 tags_str = ','.join(tags_list) if tags_list else None
 
                 if c_url not in existing_urls:
+                    has_access = chapter_data.get('has_access', True)
                     new_chapter = Chapter(
                         title=chapter_data['title'],
                         source_url=c_url,
                         story_id=story.id,
                         index=idx,
-                        status='pending',
+                        status='pending' if has_access else 'locked',
                         published_date=published_date,
                         volume_title=volume_title,
                         volume_number=volume_number,
                         tags=tags_str
                     )
                     session.add(new_chapter)
-                    new_chapters_count += 1
+                    if has_access:
+                        new_chapters_count += 1
                 else:
                     # Update index if needed
                     existing_chap = existing_urls[c_url]

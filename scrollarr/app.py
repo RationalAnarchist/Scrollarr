@@ -345,9 +345,21 @@ job_manager = JobManager()
 
 @app.on_event("startup")
 async def startup_event():
-    """Start the background job manager."""
+    """Start the background job manager and pre-install Playwright chromium."""
     global job_manager
     job_manager.start()
+
+    import threading
+    def ensure_playwright():
+        try:
+            import subprocess
+            logger.info("Ensuring Playwright chromium is installed in background...")
+            subprocess.run(["playwright", "install", "chromium"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logger.info("Playwright chromium background check/install complete.")
+        except Exception as startup_err:
+            logger.warning(f"Failed to ensure Playwright chromium on startup: {startup_err}")
+
+    threading.Thread(target=ensure_playwright, daemon=True).start()
 
 @app.on_event("shutdown")
 async def shutdown_event():

@@ -80,11 +80,18 @@
                 const li = document.createElement('li');
                 li.className = "px-6 py-4 flex items-center justify-between hover:bg-gray-750 transition-colors";
 
+                let keyText = source.key;
+                if (source.key === 'patreon') {
+                    keyText = "patreon - click on the settings icon to add your session id";
+                } else if (source.key === 'ao3') {
+                    keyText = "ao3 - click on the settings icon to add your session cookies";
+                }
+
                 const content = `
                     <div class="flex items-center">
                         <div class="ml-3">
                             <p class="text-sm font-medium text-white">${source.name}</p>
-                            <p class="text-xs text-gray-500">${source.key}</p>
+                            <p class="text-xs text-gray-500">${keyText}</p>
                         </div>
                     </div>
                     <div class="flex items-center gap-4">

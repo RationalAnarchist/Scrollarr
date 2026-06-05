@@ -723,6 +723,8 @@ async def config_source(source_key: str, config: Dict, db: Session = Depends(get
         # Reload providers to apply new config
         if story_manager:
             story_manager.reload_providers()
+        if job_manager and hasattr(job_manager, 'story_manager') and job_manager.story_manager:
+            job_manager.story_manager.reload_providers()
 
         return {"message": f"Configuration for {source.name} updated"}
     except Exception as e:
@@ -951,6 +953,8 @@ async def toggle_source(source_key: str, db: Session = Depends(get_db)):
     # Reload providers in story_manager
     if story_manager:
         story_manager.reload_providers()
+    if job_manager and hasattr(job_manager, 'story_manager') and job_manager.story_manager:
+        job_manager.story_manager.reload_providers()
 
     return {"message": f"Source {source.name} {'enabled' if source.is_enabled else 'disabled'}", "is_enabled": source.is_enabled}
 

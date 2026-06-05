@@ -61,18 +61,28 @@ class PatreonSource(BaseSource):
                 logger.error(f"Failed to add Patreon cookies to page context: {e}")
         return page
 
-    def _extract_campaign_id(self, html: str) -> Optional[str]:
-        # Try finding standard patreon-media campaign link
-        match = re.search(r'patreon-media/p/campaign/(\d+)', html)
-        if match:
-            return match.group(1)
+    def _extract_campaign_ids(self, html: str) -> List[str]:
+        campaign_ids = []
+        
+        # 1. Look for "campaign": {"data": {"id": "123"}} style objects
+        match_json = re.findall(r'"campaign":\s*\{\s*"data":\s*\{\s*"id":\s*"(\d+)"', html)
+        for cid in match_json:
+            if cid not in campaign_ids:
+                campaign_ids.append(cid)
+                
+        # 2. Look for patreon-media/p/campaign/(\d+)
+        match_media = re.findall(r'patreon-media/p/campaign/(\d+)', html)
+        for cid in match_media:
+            if cid not in campaign_ids:
+                campaign_ids.append(cid)
 
-        # Fallback to general campaign/digits
-        match = re.search(r'campaign/(\d+)', html)
-        if match:
-            return match.group(1)
+        # 3. Look for campaign/(\d+)
+        match_general = re.findall(r'campaign/(\d+)', html)
+        for cid in match_general:
+            if cid not in campaign_ids:
+                campaign_ids.append(cid)
 
-        return None
+        return campaign_ids
 
     def get_metadata(self, url: str) -> Dict:
         page = self._get_page()
@@ -120,90 +130,94 @@ class PatreonSource(BaseSource):
             page.wait_for_timeout(2000)
             html = page.content()
 
-            campaign_id = self._extract_campaign_id(html)
-            if not campaign_id:
+            campaign_ids = self._extract_campaign_ids(html)
+            if not campaign_ids:
                 logger.error(f"Could not find Patreon campaign ID in page {url}")
                 return []
 
-            logger.info(f"Patreon campaign ID: {campaign_id}")
+            logger.info(f"Patreon campaign IDs found: {campaign_ids}")
             posts = []
 
-            # Paginate through Patreon posts API
-            posts_url = f"/api/posts?filter[campaign_id]={campaign_id}&filter[is_draft]=false&sort=-published_at"
+            for campaign_id in campaign_ids:
+                # Paginate through Patreon posts API
+                posts_url = f"/api/posts?filter[campaign_id]={campaign_id}&filter[is_draft]=false&sort=-published_at"
 
-            while posts_url:
-                retries = 3
-                response_data = None
-                while retries > 0:
-                    response_data = page.evaluate(f"""
-                        async () => {{
-                            try {{
-                                const response = await fetch('{posts_url}');
-                                if (!response.ok) {{
-                                    return {{ error: 'HTTP error', status: response.status, text: await response.text().then(t => t.slice(0, 200)) }};
+                while posts_url:
+                    retries = 3
+                    response_data = None
+                    while retries > 0:
+                        response_data = page.evaluate(f"""
+                            async () => {{
+                                try {{
+                                    const response = await fetch('{posts_url}');
+                                    if (!response.ok) {{
+                                        return {{ error: 'HTTP error', status: response.status, text: await response.text().then(t => t.slice(0, 200)) }};
+                                    }}
+                                    return await response.json();
+                                }} catch (e) {{
+                                    return {{ error: e.toString() }};
                                 }}
-                                return await response.json();
-                            }} catch (e) {{
-                                return {{ error: e.toString() }};
                             }}
-                        }}
-                    """)
+                        """)
 
-                    if isinstance(response_data, dict) and response_data.get('status') == 429:
-                        logger.warning(f"Patreon API returned 429. Retrying in 3 seconds... ({retries} retries left)")
-                        page.wait_for_timeout(3000)
-                        retries -= 1
-                    else:
+                        if isinstance(response_data, dict) and response_data.get('status') == 429:
+                            logger.warning(f"Patreon API returned 429. Retrying in 3 seconds... ({retries} retries left)")
+                            page.wait_for_timeout(3000)
+                            retries -= 1
+                        else:
+                            break
+
+                    if 'error' in response_data:
+                        logger.error(f"Patreon API returned error in get_chapter_list: {response_data.get('error')} (Status: {response_data.get('status')}, Text: {response_data.get('text')})")
                         break
 
-                if 'error' in response_data:
-                    logger.error(f"Patreon API returned error in get_chapter_list: {response_data.get('error')} (Status: {response_data.get('status')}, Text: {response_data.get('text')})")
-                    break
+                    if 'data' not in response_data:
+                        break
 
-                if 'data' not in response_data:
-                    break
+                    for post in response_data['data']:
+                        attrs = post.get('attributes', {})
+                        title = attrs.get('title')
+                        post_id = post.get('id')
+                        chapter_url = f"https://www.patreon.com/posts/{post_id}"
 
-                for post in response_data['data']:
-                    attrs = post.get('attributes', {})
-                    title = attrs.get('title')
-                    post_id = post.get('id')
-                    chapter_url = f"https://www.patreon.com/posts/{post_id}"
-                    
-                    published_str = attrs.get('published_at')
-                    published_date = None
-                    if published_str:
-                        try:
-                            # Parse ISO format: 2026-06-01T05:42:44.000+00:00
-                            # Strip milliseconds and timezone for datetime.strptime simplicity
-                            base_str = published_str.split('.')[0]
-                            published_date = datetime.strptime(base_str, "%Y-%m-%dT%H:%M:%S")
-                        except Exception as date_err:
-                            logger.warning(f"Failed to parse Patreon post date {published_str}: {date_err}")
+                        if any(p['url'] == chapter_url for p in posts):
+                            continue
 
-                    # Determine access
-                    can_view = attrs.get('current_user_can_view', False)
+                        published_str = attrs.get('published_at')
+                        published_date = None
+                        if published_str:
+                            try:
+                                # Parse ISO format: 2026-06-01T05:42:44.000+00:00
+                                # Strip milliseconds and timezone for datetime.strptime simplicity
+                                base_str = published_str.split('.')[0]
+                                published_date = datetime.strptime(base_str, "%Y-%m-%dT%H:%M:%S")
+                            except Exception as date_err:
+                                logger.warning(f"Failed to parse Patreon post date {published_str}: {date_err}")
 
-                    posts.append({
-                        'title': title,
-                        'url': chapter_url,
-                        'published_date': published_date,
-                        'has_access': can_view
-                    })
+                        # Determine access
+                        can_view = attrs.get('current_user_can_view', False)
 
-                # Check for next page
-                next_link = response_data.get('links', {}).get('next')
-                if next_link:
-                    page.wait_for_timeout(1500)  # Polite delay between page requests
-                    if 'patreon.com' in next_link:
-                        idx = next_link.find('/api/')
-                        if idx != -1:
-                            posts_url = next_link[idx:]
+                        posts.append({
+                            'title': title,
+                            'url': chapter_url,
+                            'published_date': published_date,
+                            'has_access': can_view
+                        })
+
+                    # Check for next page
+                    next_link = response_data.get('links', {}).get('next')
+                    if next_link:
+                        page.wait_for_timeout(1500)  # Polite delay between page requests
+                        if 'patreon.com' in next_link:
+                            idx = next_link.find('/api/')
+                            if idx != -1:
+                                posts_url = next_link[idx:]
+                            else:
+                                posts_url = None
                         else:
-                            posts_url = None
+                            posts_url = next_link
                     else:
-                        posts_url = next_link
-                else:
-                    posts_url = None
+                        posts_url = None
 
             # Sort chapters by published date ASC (oldest first)
             posts.sort(key=lambda x: x['published_date'] or datetime.min)

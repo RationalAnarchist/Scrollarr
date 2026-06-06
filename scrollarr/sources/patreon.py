@@ -2,6 +2,8 @@ import re
 import json
 import html as html_esc
 import logging
+import random
+import time
 from typing import List, Dict, Optional
 from datetime import datetime
 from bs4 import BeautifulSoup
@@ -9,8 +11,10 @@ from urllib.parse import urljoin
 
 from ..core_logic import BaseSource
 from ..browser_manager import BrowserManager
+from ..config import config_manager
 
 logger = logging.getLogger(__name__)
+
 
 class PatreonSource(BaseSource):
     key = "patreon"
@@ -149,10 +153,18 @@ class PatreonSource(BaseSource):
 
 
     def get_chapter_list(self, url: str, **kwargs) -> List[Dict]:
+        min_delay = config_manager.get('min_delay', 2.0)
+        max_delay = config_manager.get('max_delay', 5.0)
+        delay = random.uniform(min_delay, max_delay)
+        logger.info(f"Patreon: Sleeping for {delay:.2f}s before fetching chapter list.")
+        time.sleep(delay)
+
         page = self._get_page()
         try:
             page.goto(url, wait_until="domcontentloaded")
+            # Wait for dynamic rendering
             page.wait_for_timeout(2000)
+
             html = page.content()
 
             campaign_ids = self._extract_campaign_ids(html)
@@ -243,7 +255,10 @@ class PatreonSource(BaseSource):
                     # Check for next page
                     next_link = response_data.get('links', {}).get('next')
                     if next_link:
-                        page.wait_for_timeout(1500)  # Polite delay between page requests
+                        # Polite delay between page requests using settings
+                        delay = random.uniform(min_delay, max_delay)
+                        page.wait_for_timeout(int(delay * 1000))
+
                         if 'patreon.com' in next_link:
                             idx = next_link.find('/api/')
                             if idx != -1:
@@ -265,8 +280,16 @@ class PatreonSource(BaseSource):
             return []
 
     def get_chapter_content(self, chapter_url: str) -> str:
+        # Enforce polite delay matching min_delay and max_delay configuration
+        min_delay = config_manager.get('min_delay', 2.0)
+        max_delay = config_manager.get('max_delay', 5.0)
+        delay = random.uniform(min_delay, max_delay)
+        logger.info(f"Patreon: Sleeping for {delay:.2f}s before fetching chapter content to respect rate limits.")
+        time.sleep(delay)
+
         page = self._get_page()
         try:
+
             # Construct the API detail URL
             post_id_match = re.search(r'/posts/.*?(\d+)', chapter_url)
             if not post_id_match:

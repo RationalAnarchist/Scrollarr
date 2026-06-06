@@ -271,11 +271,24 @@ class StoryManager:
                     # Update tags
                     if tags_str and existing_chap.tags != tags_str:
                          existing_chap.tags = tags_str
+                    
+                    # Update status based on access changes
+                    has_access = chapter_data.get('has_access', True)
+                    if has_access:
+                        if existing_chap.status == 'locked':
+                            existing_chap.status = 'pending'
+                            new_chapters_count += 1
+                    else:
+                        if existing_chap.status in ('pending', 'failed'):
+                            existing_chap.status = 'locked'
+
+
 
             story.last_checked = func.now()
             if new_chapters_count > 0:
                 story.last_updated = func.now()
 
+            self._reindex_chapters(story.id, session)
             session.commit()
             logger.info(f"Story '{story.title}' processed. Added {new_chapters_count} new chapters.")
 
@@ -375,6 +388,36 @@ class StoryManager:
         except Exception as e:
             logger.error(f"Failed to save metadata for story {story.id}: {e}")
 
+    def _reindex_chapters(self, story_id: int, session):
+        """
+        Re-indexes all chapters for a story chronologically by published_date.
+        This resolves any duplicate indices or ordering issues.
+        """
+        from .database import Chapter
+        session.flush() # Ensure all pending chapters are flushed so query returns them
+        chapters = session.query(Chapter).filter(Chapter.story_id == story_id).all()
+        
+        # Sort by published_date ASC. Strip timezone for comparison to avoid naive/aware mismatch
+        def get_sort_key(c):
+            d = c.published_date
+            if d is None:
+                return datetime.min
+            if d.tzinfo is not None:
+                d = d.replace(tzinfo=None)
+            return d
+
+        chapters.sort(key=lambda c: (
+            get_sort_key(c),
+            c.index if c.index is not None else 0,
+            c.id
+        ))
+        
+        for idx, chapter in enumerate(chapters):
+            new_idx = idx + 1
+            if chapter.index != new_idx:
+                chapter.index = new_idx
+
+
     def _get_last_chapter_info(self, story):
         """Helper to extract last chapter info for optimization."""
         if not story.chapters:
@@ -470,11 +513,13 @@ class StoryManager:
                     # Determine last chapter for optimization
                     last_chapter = self._get_last_chapter_info(story)
 
-                    # Fetch current chapters from source
-                    remote_chapters = provider.get_chapter_list(story.source_url, last_chapter=last_chapter)
-
                     # Get existing chapters from DB
                     existing_chapter_urls = {c.source_url for c in story.chapters}
+
+                    # Fetch current chapters from source
+                    remote_chapters = provider.get_chapter_list(story.source_url, last_chapter=last_chapter, existing_urls=existing_chapter_urls)
+
+
 
                     new_chapters_count = 0
                     for i, chap_data in enumerate(remote_chapters):
@@ -518,12 +563,17 @@ class StoryManager:
                                      if tags_str and ec.tags != tags_str:
                                          ec.tags = tags_str
                                      
-                                     # Transition from locked to pending if access granted now
+                                     # Transition from locked to pending if access granted now, or pending/failed to locked if access revoked
                                      has_access = chap_data.get('has_access', True)
-                                     if ec.status == 'locked' and has_access:
-                                         ec.status = 'pending'
-                                         new_chapters_count += 1
+                                     if has_access:
+                                         if ec.status == 'locked':
+                                             ec.status = 'pending'
+                                             new_chapters_count += 1
+                                     else:
+                                         if ec.status in ('pending', 'failed'):
+                                             ec.status = 'locked'
                                      break
+
 
                     story.last_checked = func.now()
                     if new_chapters_count > 0:
@@ -539,6 +589,7 @@ class StoryManager:
                     else:
                         logger.info(f"No new chapters for '{story.title}'")
 
+                    self._reindex_chapters(story.id, session)
                     session.commit()
 
                     # Save metadata

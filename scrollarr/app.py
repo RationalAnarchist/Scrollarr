@@ -375,7 +375,7 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
 
     stories_with_progress = []
     for story in stories:
-        total = len(story.chapters)
+        total = sum(1 for c in story.chapters if c.status != 'locked')
         downloaded = sum(1 for c in story.chapters if c.status == 'downloaded')
         failed = sum(1 for c in story.chapters if c.status == 'failed')
         progress = (downloaded / total * 100) if total > 0 else 0
@@ -995,7 +995,7 @@ async def get_progress(db: Session = Depends(get_db)):
     stories = db.query(Story).all()
     result = []
     for story in stories:
-        total = len(story.chapters)
+        total = sum(1 for c in story.chapters if c.status != 'locked')
         downloaded = sum(1 for c in story.chapters if c.status == 'downloaded')
         failed = sum(1 for c in story.chapters if c.status == 'failed')
         progress = (downloaded / total * 100) if total > 0 else 0
@@ -1248,7 +1248,8 @@ async def story_details(story_id: int, request: Request, db: Session = Depends(g
                 'title': chapter.volume_title or f"Volume {v_num}",
                 'chapters': [],
                 'downloaded_count': 0,
-                'failed_count': 0
+                'failed_count': 0,
+                'unlocked_count': 0
             }
         # Update title if it was missing but found later (though usually consistent within volume)
         if not grouped_volumes[v_num]['title'] or grouped_volumes[v_num]['title'].startswith("Volume "):
@@ -1263,6 +1264,9 @@ async def story_details(story_id: int, request: Request, db: Session = Depends(g
         elif chapter.status == 'failed':
             grouped_volumes[v_num]['failed_count'] += 1
 
+        if chapter.status != 'locked':
+            grouped_volumes[v_num]['unlocked_count'] += 1
+
     # Sort volumes
     volumes = sorted(grouped_volumes.values(), key=lambda x: x['number'])
 
@@ -1272,7 +1276,7 @@ async def story_details(story_id: int, request: Request, db: Session = Depends(g
 
     stats = {
         'total_volumes': len(volumes),
-        'total_chapters': len(chapters),
+        'total_chapters': sum(1 for c in chapters if c.status != 'locked'),
         'downloaded_chapters': sum(1 for c in chapters if c.status == 'downloaded'),
         'failed_chapters': sum(1 for c in chapters if c.status == 'failed')
     }

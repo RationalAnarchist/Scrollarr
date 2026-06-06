@@ -106,8 +106,32 @@ class PatreonSource(BaseSource):
             description = og_desc['content'] if og_desc else "No description available."
 
             # Cover Photo / Avatar
-            og_image = soup.find('meta', property='og:image')
-            cover_url = og_image['content'] if og_image else None
+            # First, try to find a high-quality campaign image from the HTML
+            campaign_ids = self._extract_campaign_ids(html)
+            cover_url = None
+            if campaign_ids:
+                # Search for campaign images matching campaign_ids
+                for img in soup.find_all('img'):
+                    src = img.get('src', '')
+                    if 'patreonusercontent.com' in src and any(f'/campaign/{cid}/' in src for cid in campaign_ids):
+                        cover_url = src.replace('&amp;', '&').replace('\\u0026', '&')
+                        break
+                
+                # If not found in img tags, try regex search in the HTML (e.g. inside script tags)
+                if not cover_url:
+                    for cid in campaign_ids:
+                        pattern = rf'https://[a-zA-Z0-9.-]*patreonusercontent\.com/[^\s"\']+/campaign/{cid}/[^\s"\']+'
+                        matches = re.findall(pattern, html)
+                        if matches:
+                            cover_url = matches[0].replace('&amp;', '&').replace('\\u0026', '&')
+                            break
+
+            # Fall back to og:image meta tag
+            if not cover_url:
+                og_image = soup.find('meta', property='og:image')
+                cover_url = og_image['content'] if og_image else None
+                if cover_url:
+                    cover_url = urljoin("https://www.patreon.com", cover_url)
 
             return {
                 'title': title,
@@ -122,6 +146,7 @@ class PatreonSource(BaseSource):
         except Exception as e:
             logger.error(f"Error fetching Patreon metadata for {url}: {e}")
             raise e
+
 
     def get_chapter_list(self, url: str, **kwargs) -> List[Dict]:
         page = self._get_page()
@@ -142,6 +167,7 @@ class PatreonSource(BaseSource):
                 # Paginate through Patreon posts API
                 posts_url = f"/api/posts?filter[campaign_id]={campaign_id}&filter[is_draft]=false&sort=-published_at"
 
+                stop_pagination = False
                 while posts_url:
                     retries = 3
                     response_data = None
@@ -180,6 +206,12 @@ class PatreonSource(BaseSource):
                         post_id = post.get('id')
                         chapter_url = f"https://www.patreon.com/posts/{post_id}"
 
+                        existing_urls = kwargs.get('existing_urls')
+                        if existing_urls and chapter_url in existing_urls:
+                            logger.info(f"Patreon: chapter {chapter_url} already exists in database. Stopping pagination for campaign {campaign_id}.")
+                            stop_pagination = True
+                            break
+
                         if any(p['url'] == chapter_url for p in posts):
                             continue
 
@@ -204,6 +236,10 @@ class PatreonSource(BaseSource):
                             'has_access': can_view
                         })
 
+                    if stop_pagination:
+                        posts_url = None
+                        break
+
                     # Check for next page
                     next_link = response_data.get('links', {}).get('next')
                     if next_link:
@@ -218,6 +254,7 @@ class PatreonSource(BaseSource):
                             posts_url = next_link
                     else:
                         posts_url = None
+
 
             # Sort chapters by published date ASC (oldest first)
             posts.sort(key=lambda x: x['published_date'] or datetime.min)

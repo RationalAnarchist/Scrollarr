@@ -205,7 +205,7 @@
                         </svg>
                         <span class="text-lg font-semibold text-gray-200">{{ vol.title }}</span>
                         <span class="text-xs text-gray-400 bg-gray-800 px-2 py-1 rounded-full border border-gray-600">
-                            {{ vol.downloaded_count }} / {{ vol.chapters|length }}
+                            {{ vol.downloaded_count }} / {{ vol.unlocked_count }}
                             {% if vol.failed_count > 0 %}
                             <span class="text-red-400 font-bold ml-1">({{ vol.failed_count }} Failed)</span>
                             {% endif %}

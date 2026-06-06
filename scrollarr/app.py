@@ -345,9 +345,21 @@ job_manager = JobManager()
 
 @app.on_event("startup")
 async def startup_event():
-    """Start the background job manager."""
+    """Start the background job manager and pre-install Playwright chromium."""
     global job_manager
     job_manager.start()
+
+    import threading
+    def ensure_playwright():
+        try:
+            import subprocess
+            logger.info("Ensuring Playwright chromium is installed in background...")
+            subprocess.run(["playwright", "install", "chromium"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logger.info("Playwright chromium background check/install complete.")
+        except Exception as startup_err:
+            logger.warning(f"Failed to ensure Playwright chromium on startup: {startup_err}")
+
+    threading.Thread(target=ensure_playwright, daemon=True).start()
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -363,7 +375,7 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
 
     stories_with_progress = []
     for story in stories:
-        total = len(story.chapters)
+        total = sum(1 for c in story.chapters if c.status != 'locked')
         downloaded = sum(1 for c in story.chapters if c.status == 'downloaded')
         failed = sum(1 for c in story.chapters if c.status == 'failed')
         progress = (downloaded / total * 100) if total > 0 else 0
@@ -711,6 +723,8 @@ async def config_source(source_key: str, config: Dict, db: Session = Depends(get
         # Reload providers to apply new config
         if story_manager:
             story_manager.reload_providers()
+        if job_manager and hasattr(job_manager, 'story_manager') and job_manager.story_manager:
+            job_manager.story_manager.reload_providers()
 
         return {"message": f"Configuration for {source.name} updated"}
     except Exception as e:
@@ -939,6 +953,8 @@ async def toggle_source(source_key: str, db: Session = Depends(get_db)):
     # Reload providers in story_manager
     if story_manager:
         story_manager.reload_providers()
+    if job_manager and hasattr(job_manager, 'story_manager') and job_manager.story_manager:
+        job_manager.story_manager.reload_providers()
 
     return {"message": f"Source {source.name} {'enabled' if source.is_enabled else 'disabled'}", "is_enabled": source.is_enabled}
 
@@ -979,7 +995,7 @@ async def get_progress(db: Session = Depends(get_db)):
     stories = db.query(Story).all()
     result = []
     for story in stories:
-        total = len(story.chapters)
+        total = sum(1 for c in story.chapters if c.status != 'locked')
         downloaded = sum(1 for c in story.chapters if c.status == 'downloaded')
         failed = sum(1 for c in story.chapters if c.status == 'failed')
         progress = (downloaded / total * 100) if total > 0 else 0
@@ -1232,7 +1248,8 @@ async def story_details(story_id: int, request: Request, db: Session = Depends(g
                 'title': chapter.volume_title or f"Volume {v_num}",
                 'chapters': [],
                 'downloaded_count': 0,
-                'failed_count': 0
+                'failed_count': 0,
+                'unlocked_count': 0
             }
         # Update title if it was missing but found later (though usually consistent within volume)
         if not grouped_volumes[v_num]['title'] or grouped_volumes[v_num]['title'].startswith("Volume "):
@@ -1247,6 +1264,9 @@ async def story_details(story_id: int, request: Request, db: Session = Depends(g
         elif chapter.status == 'failed':
             grouped_volumes[v_num]['failed_count'] += 1
 
+        if chapter.status != 'locked':
+            grouped_volumes[v_num]['unlocked_count'] += 1
+
     # Sort volumes
     volumes = sorted(grouped_volumes.values(), key=lambda x: x['number'])
 
@@ -1256,7 +1276,7 @@ async def story_details(story_id: int, request: Request, db: Session = Depends(g
 
     stats = {
         'total_volumes': len(volumes),
-        'total_chapters': len(chapters),
+        'total_chapters': sum(1 for c in chapters if c.status != 'locked'),
         'downloaded_chapters': sum(1 for c in chapters if c.status == 'downloaded'),
         'failed_chapters': sum(1 for c in chapters if c.status == 'failed')
     }

@@ -243,6 +243,9 @@ class UrlRequest(BaseModel):
     profile_id: Optional[int] = None
     provider_key: Optional[str] = None
 
+class MirrorRequest(BaseModel):
+    alternative_source_url: Optional[str] = None
+
 class SettingsRequest(BaseModel):
     download_path: str
     min_delay: float = 2.0
@@ -1058,6 +1061,36 @@ def update_story(story_id: int):
     except Exception as e:
         logger.error(f"Update error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/story/{story_id}/mirror")
+def update_mirror_url(story_id: int, request: MirrorRequest, db: Session = Depends(get_db)):
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    story.alternative_source_url = request.alternative_source_url
+    try:
+        db.commit()
+        return {"message": "Mirror URL updated successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/story/{story_id}/detect-mirror")
+def detect_mirror(story_id: int, db: Session = Depends(get_db)):
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+    
+    url = story.source_url
+    detected = None
+    import re
+    if "kemono" in url:
+        detected = re.sub(r'https?://kemono\.(?:cr|su|party)', 'https://pawchive.st', url)
+    elif "pawchive.st" in url:
+        detected = re.sub(r'https?://pawchive\.st', 'https://kemono.cr', url)
+        
+    return {"detected_url": detected}
 
 @app.post("/api/story/{story_id}/retry")
 def retry_story(story_id: int):

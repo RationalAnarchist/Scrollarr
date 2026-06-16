@@ -16,6 +16,16 @@ class KemonoSource(BaseSource):
     name = "Kemono"
     is_enabled_by_default = False
 
+    URL_REGEX = r'kemono\.(?:cr|su|party)/([^/]+)/user/([^/]+)'
+    DEFAULT_DOMAIN = "https://kemono.cr"
+    IMG_DOMAIN = "https://img.kemono.cr"
+
+    def get_base_domain(self, url: str) -> str:
+        return self.DEFAULT_DOMAIN
+
+    def get_img_domain(self, url: str) -> str:
+        return self.IMG_DOMAIN
+
     def identify(self, url: str) -> bool:
         return any(base in url for base in self.BASE_URLS)
 
@@ -126,7 +136,7 @@ class KemonoSource(BaseSource):
         # Or switch to API /api/v1/{service}/user/{id}/profile
 
         # Let's try API first, fall back to scraping
-        match = re.search(r'kemono\.(?:cr|su|party)/([^/]+)/user/([^/]+)', url)
+        match = re.search(self.URL_REGEX, url)
         if match:
             service, user_id = match.groups()
 
@@ -135,7 +145,7 @@ class KemonoSource(BaseSource):
                     browser = p.chromium.launch(headless=True)
                     page = browser.new_page()
                     # Go to base URL to set context
-                    page.goto(f"https://kemono.cr/{service}/user/{user_id}", wait_until="domcontentloaded")
+                    page.goto(f"{self.get_base_domain(url)}/{service}/user/{user_id}", wait_until="domcontentloaded")
 
                     profile = self._get_api_data(page, f"/api/v1/{service}/user/{user_id}/profile")
                     if profile:
@@ -143,7 +153,7 @@ class KemonoSource(BaseSource):
                             'title': profile.get('name', 'Unknown Title'),
                             'author': profile.get('name', 'Unknown Author'),
                             'description': f"Posts from {service}",
-                            'cover_url': f"https://img.kemono.cr/icons/{service}/{user_id}",
+                            'cover_url': f"{self.get_img_domain(url)}/icons/{service}/{user_id}",
                             'tags': None,
                             'rating': None,
                             'language': 'English',
@@ -185,7 +195,7 @@ class KemonoSource(BaseSource):
                 if src.startswith('//'):
                     cover_url = f"https:{src}"
                 elif src.startswith('/'):
-                    cover_url = f"https://kemono.cr{src}"
+                    cover_url = f"{self.get_base_domain(url)}{src}"
                 else:
                     cover_url = src
 
@@ -203,13 +213,13 @@ class KemonoSource(BaseSource):
     def get_chapter_list(self, url: str, **kwargs) -> List[Dict]:
         chapters = []
 
-        match = re.search(r'kemono\.(?:cr|su|party)/([^/]+)/user/([^/]+)', url)
+        match = re.search(self.URL_REGEX, url)
         if not match:
             print("Could not parse service/user from URL")
             return []
 
         service, user_id = match.groups()
-        base_domain = "https://kemono.cr" # Force .cr for API consistency
+        base_domain = self.get_base_domain(url)
 
         with self._get_playwright() as p:
             try:
@@ -402,7 +412,7 @@ class KemonoSource(BaseSource):
                     src = thumb_el.get_attribute('src')
                     if src:
                         if src.startswith('/'):
-                            src = f"https://kemono.cr{src}"
+                            src = f"{self.get_base_domain(chapter_url)}{src}"
                         attachments_html += f'<img src="{src}" /><br/>'
 
                 atts = page.query_selector_all('.post__attachment a')
@@ -414,12 +424,12 @@ class KemonoSource(BaseSource):
                         src = thumb.get_attribute('src')
                         if src:
                             if src.startswith('/'):
-                                src = f"https://kemono.cr{src}"
+                                src = f"{self.get_base_domain(chapter_url)}{src}"
                             attachments_html += f'<img src="{src}" /><br/>'
                     elif href:
                         if href.endswith('.jpg') or href.endswith('.png') or href.endswith('.jpeg'):
                             if href.startswith('/'):
-                                href = f"https://kemono.cr{href}"
+                                href = f"{self.get_base_domain(chapter_url)}{href}"
                             attachments_html += f'<img src="{href}" /><br/>'
                         elif href.endswith('.epub'):
                             try:
@@ -469,7 +479,7 @@ class KemonoSource(BaseSource):
 
     def search(self, query: str) -> List[Dict]:
         results = []
-        search_url = f"https://kemono.cr/artists?q={query}"
+        search_url = f"{self.DEFAULT_DOMAIN}/artists?q={query}"
 
         with self._get_playwright() as p:
             try:
@@ -505,7 +515,7 @@ class KemonoSource(BaseSource):
 
                     full_url = href
                     if href.startswith('/'):
-                        full_url = f"https://kemono.cr{href}"
+                        full_url = f"{self.DEFAULT_DOMAIN}{href}"
 
                     name_div = item.select_one('.user-card__name')
                     name = name_div.get_text(strip=True) if name_div else "Unknown"
@@ -521,7 +531,7 @@ class KemonoSource(BaseSource):
                         if match:
                             src = match.group(1)
                             if src.startswith('/'):
-                                cover_url = f"https://kemono.cr{src}"
+                                cover_url = f"{self.DEFAULT_DOMAIN}{src}"
                             else:
                                 cover_url = src
 
@@ -530,7 +540,7 @@ class KemonoSource(BaseSource):
                         'url': full_url,
                         'author': service,
                         'cover_url': cover_url,
-                        'provider': 'Kemono'
+                        'provider': self.name
                     })
 
             except Exception as e:

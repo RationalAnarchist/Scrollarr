@@ -929,6 +929,45 @@ class StoryManager:
             # Fetch current chapters from source
             remote_chapters = provider.get_chapter_list(story.source_url, last_chapter=last_chapter)
 
+            # Fetch and merge alternative source chapters if configured
+            if getattr(story, 'alternative_source_url', None):
+                alt_provider = self.source_manager.get_provider_for_url(story.alternative_source_url)
+                if alt_provider:
+                    try:
+                        logger.info(f"Checking alternative source for updates: {story.alternative_source_url}")
+                        alt_chapters = alt_provider.get_chapter_list(story.alternative_source_url)
+                        
+                        # Match/merge to avoid duplicates based on normalized titles and published dates
+                        import re
+                        def norm_title(t):
+                            return re.sub(r'[^a-zA-Z0-9]', '', t or '').lower()
+                        
+                        primary_normalized = {norm_title(c.get('title')) for c in remote_chapters if c.get('title')}
+                        primary_dates = {c.get('published_date') for c in remote_chapters if c.get('published_date')}
+
+                        for alt_c in alt_chapters:
+                            alt_title = alt_c.get('title')
+                            alt_norm = norm_title(alt_title)
+                            alt_date = alt_c.get('published_date')
+
+                            is_duplicate = False
+                            if alt_norm and alt_norm in primary_normalized:
+                                is_duplicate = True
+                            elif alt_date and alt_date in primary_dates:
+                                is_duplicate = True
+
+                            if not is_duplicate:
+                                remote_chapters.append(alt_c)
+                                if alt_norm:
+                                    primary_normalized.add(alt_norm)
+                                if alt_date:
+                                    primary_dates.add(alt_date)
+                        
+                        # Sort all remote chapters by published_date ASC (oldest first)
+                        remote_chapters.sort(key=lambda x: x.get('published_date') or datetime.min)
+                    except Exception as e:
+                        logger.error(f"Error fetching alternative updates for story {story_id}: {e}")
+
             # Get existing chapters from DB
             existing_chapter_urls = {c.source_url for c in story.chapters}
 

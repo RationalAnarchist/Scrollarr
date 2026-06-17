@@ -390,10 +390,12 @@ class StoryManager:
 
     def _reindex_chapters(self, story_id: int, session):
         """
-        Re-indexes all chapters for a story chronologically by published_date.
-        This resolves any duplicate indices or ordering issues.
+        Re-indexes all chapters for a story.
+        This resolves any duplicate indices or ordering issues by using parsed indices
+        from URLs or titles, then falling back to published dates.
         """
         from .database import Chapter
+        import re
         session.flush() # Ensure all pending chapters are flushed so query returns them
         chapters = session.query(Chapter).filter(Chapter.story_id == story_id).all()
         
@@ -406,9 +408,25 @@ class StoryManager:
                 d = d.replace(tzinfo=None)
             return d
 
+        def get_numeric_index(c) -> float:
+            if not c.source_url:
+                return float('inf')
+            # Try to parse from URL first (e.g. FFN: /s/story_id/chapter_number)
+            match = re.search(r'/s/\d+/(\d+)', c.source_url)
+            if match:
+                return float(match.group(1))
+            
+            # Try to parse from title (e.g. Chapter 5)
+            if c.title:
+                title_match = re.search(r'(?:Chapter|Ch\.?|Volume\s+\d+\s+Chapter)\s*(\d+)', c.title, re.IGNORECASE)
+                if title_match:
+                    return float(title_match.group(1))
+            
+            return float('inf')
+
         chapters.sort(key=lambda c: (
+            get_numeric_index(c),
             get_sort_key(c),
-            c.index if c.index is not None else 0,
             c.id
         ))
         

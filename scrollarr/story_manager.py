@@ -1209,6 +1209,13 @@ class StoryManager:
                 "DELETE FROM download_history WHERE story_id = ? OR chapter_id IN (SELECT id FROM chapters WHERE story_id = ?)",
                 (story_id, story_id)
             )
+            logger.info(f"[Delete Story {story_id}] Deleted {cursor.rowcount} rows from download_history in transaction.")
+
+            # Mid-delete verification: Query history table inside the transaction before deleting chapters
+            if 'chap_ids' in locals() and chap_ids:
+                placeholders = ','.join('?' for _ in chap_ids)
+                cursor.execute(f"SELECT id, chapter_id, story_id FROM download_history WHERE chapter_id IN ({placeholders})", chap_ids)
+                logger.info(f"[Delete Story {story_id}] Mid-delete matching download_history rows: {cursor.fetchall()}")
 
             # 2. Delete all chapters belonging to the story
             cursor.execute(

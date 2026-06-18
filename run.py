@@ -49,11 +49,13 @@ if __name__ == "__main__":
         "verification_downloads/**/*"
     ]
 
+    reload_enabled = os.getenv("DEVELOPMENT", "false").lower() == "true"
+
     uvicorn.run(
         "scrollarr.app:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
+        reload=reload_enabled,
         log_config=log_config,
         reload_excludes=reload_excludes
     )

@@ -1173,6 +1173,21 @@ class StoryManager:
                      logger.error(f"Error during fallback deletion: {e}")
 
             # Delete database records
+            # Diagnostics: Find all tables referencing 'chapters' in the active database
+            try:
+                cursor = session.connection().connection.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = [row[0] for row in cursor.fetchall()]
+                referencing_fks = []
+                for tbl in tables:
+                    cursor.execute(f"PRAGMA foreign_key_list({tbl})")
+                    for fk in cursor.fetchall():
+                        if fk[2] == 'chapters':
+                            referencing_fks.append((tbl, fk[3], fk[4]))
+                logger.info(f"[Delete Story {story_id}] Tables referencing 'chapters' table: {referencing_fks}")
+            except Exception as diag_e:
+                logger.warning(f"Failed to run pre-deletion schema diagnostics: {diag_e}")
+
             # 1. Fetch and delete all history records referencing this story or any of its chapters
             histories = session.query(DownloadHistory).filter(
                 (DownloadHistory.story_id == story_id) |
@@ -1180,12 +1195,14 @@ class StoryManager:
                     session.query(Chapter.id).filter(Chapter.story_id == story_id)
                 ))
             ).all()
+            logger.info(f"[Delete Story {story_id}] Found {len(histories)} DownloadHistory records to delete.")
             for h in histories:
                 session.delete(h)
             session.flush()
 
             # 2. Fetch and delete all chapters for this story
             chapters = session.query(Chapter).filter(Chapter.story_id == story_id).all()
+            logger.info(f"[Delete Story {story_id}] Found {len(chapters)} Chapter records to delete.")
             for c in chapters:
                 session.delete(c)
             session.flush()
@@ -1193,9 +1210,17 @@ class StoryManager:
             # 3. Delete the story itself
             session.delete(story)
             session.commit()
-            logger.info(f"Story {story_id} deleted.")
+            logger.info(f"Story {story_id} deleted successfully.")
 
         except Exception as e:
+            try:
+                # Run detailed SQLite foreign key violation diagnostics
+                cursor = session.connection().connection.cursor()
+                cursor.execute("PRAGMA foreign_key_check")
+                violations = cursor.fetchall()
+                logger.error(f"[Delete Story {story_id}] PRAGMA foreign_key_check results: {violations}")
+            except Exception as fk_diag_e:
+                logger.error(f"Failed to execute PRAGMA foreign_key_check: {fk_diag_e}")
             session.rollback()
             logger.error(f"Error deleting story {story_id}: {e}")
             raise e

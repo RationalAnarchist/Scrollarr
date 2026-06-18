@@ -1202,31 +1202,27 @@ class StoryManager:
                 logger.warning(f"Failed to run pre-deletion diagnostics: {diag_e}")
 
             # 1. Delete all download_history records referencing the story or its chapters
-            session.execute(text(
-                "DELETE FROM download_history WHERE story_id = :story_id OR chapter_id IN (SELECT id FROM chapters WHERE story_id = :story_id)"
-            ), {"story_id": story_id})
-            session.flush()
-
-            # Verify deletion of history records
-            try:
-                if 'chap_ids' in locals() and chap_ids:
-                    cursor = session.connection().connection.cursor()
-                    placeholders = ','.join('?' for _ in chap_ids)
-                    cursor.execute(f"SELECT id, chapter_id, story_id FROM download_history WHERE chapter_id IN ({placeholders})", chap_ids)
-                    logger.info(f"[Delete Story {story_id}] Post-delete matching download_history rows: {cursor.fetchall()}")
-            except Exception as diag_e:
-                logger.warning(f"Failed to run post-deletion history check: {diag_e}")
+            db_conn = session.connection().connection
+            cursor = db_conn.cursor()
+            
+            cursor.execute(
+                "DELETE FROM download_history WHERE story_id = ? OR chapter_id IN (SELECT id FROM chapters WHERE story_id = ?)",
+                (story_id, story_id)
+            )
 
             # 2. Delete all chapters belonging to the story
-            session.execute(text(
-                "DELETE FROM chapters WHERE story_id = :story_id"
-            ), {"story_id": story_id})
+            cursor.execute(
+                "DELETE FROM chapters WHERE story_id = ?",
+                (story_id,)
+            )
 
             # 3. Delete the story itself
-            session.execute(text(
-                "DELETE FROM stories WHERE id = :story_id"
-            ), {"story_id": story_id})
+            cursor.execute(
+                "DELETE FROM stories WHERE id = ?",
+                (story_id,)
+            )
 
+            db_conn.commit()
             session.commit()
             logger.info(f"Story {story_id} deleted successfully.")
 

@@ -73,19 +73,23 @@ class TestDeleteCascade(unittest.TestCase):
         self.assertEqual(self.session.query(DownloadHistory).count(), 3)
 
         # 4. Perform the same delete sequence as story_manager.delete_story
-        from sqlalchemy import text
         story_id = story.id
-        self.session.execute(text(
-            "DELETE FROM download_history WHERE story_id = :story_id OR chapter_id IN (SELECT id FROM chapters WHERE story_id = :story_id)"
-        ), {"story_id": story_id})
+        db_conn = self.session.connection().connection
+        cursor = db_conn.cursor()
         
-        self.session.execute(text(
-            "DELETE FROM chapters WHERE story_id = :story_id"
-        ), {"story_id": story_id})
-        
-        self.session.execute(text(
-            "DELETE FROM stories WHERE id = :story_id"
-        ), {"story_id": story_id})
+        cursor.execute(
+            "DELETE FROM download_history WHERE story_id = ? OR chapter_id IN (SELECT id FROM chapters WHERE story_id = ?)",
+            (story_id, story_id)
+        )
+        cursor.execute(
+            "DELETE FROM chapters WHERE story_id = ?",
+            (story_id,)
+        )
+        cursor.execute(
+            "DELETE FROM stories WHERE id = ?",
+            (story_id,)
+        )
+        db_conn.commit()
         self.session.commit()
 
         # 5. Verify cascade deletion

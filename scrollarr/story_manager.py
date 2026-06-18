@@ -8,6 +8,7 @@ import stat
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import text
 from sqlalchemy.sql import func
 from .core_logic import SourceManager, BaseSource
 from .database import Story, Chapter, Source, SessionLocal, init_db, engine, DownloadHistory
@@ -1173,42 +1174,21 @@ class StoryManager:
                      logger.error(f"Error during fallback deletion: {e}")
 
             # Delete database records
-            # Diagnostics: Find all tables referencing 'chapters' in the active database
-            try:
-                cursor = session.connection().connection.cursor()
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                tables = [row[0] for row in cursor.fetchall()]
-                referencing_fks = []
-                for tbl in tables:
-                    cursor.execute(f"PRAGMA foreign_key_list({tbl})")
-                    for fk in cursor.fetchall():
-                        if fk[2] == 'chapters':
-                            referencing_fks.append((tbl, fk[3], fk[4]))
-                logger.info(f"[Delete Story {story_id}] Tables referencing 'chapters' table: {referencing_fks}")
-            except Exception as diag_e:
-                logger.warning(f"Failed to run pre-deletion schema diagnostics: {diag_e}")
+            # 1. Delete all download_history records referencing the story or its chapters
+            session.execute(text(
+                "DELETE FROM download_history WHERE story_id = :story_id OR chapter_id IN (SELECT id FROM chapters WHERE story_id = :story_id)"
+            ), {"story_id": story_id})
 
-            # 1. Fetch and delete all history records referencing this story or any of its chapters
-            histories = session.query(DownloadHistory).filter(
-                (DownloadHistory.story_id == story_id) |
-                (DownloadHistory.chapter_id.in_(
-                    session.query(Chapter.id).filter(Chapter.story_id == story_id)
-                ))
-            ).all()
-            logger.info(f"[Delete Story {story_id}] Found {len(histories)} DownloadHistory records to delete.")
-            for h in histories:
-                session.delete(h)
-            session.flush()
-
-            # 2. Fetch and delete all chapters for this story
-            chapters = session.query(Chapter).filter(Chapter.story_id == story_id).all()
-            logger.info(f"[Delete Story {story_id}] Found {len(chapters)} Chapter records to delete.")
-            for c in chapters:
-                session.delete(c)
-            session.flush()
+            # 2. Delete all chapters belonging to the story
+            session.execute(text(
+                "DELETE FROM chapters WHERE story_id = :story_id"
+            ), {"story_id": story_id})
 
             # 3. Delete the story itself
-            session.delete(story)
+            session.execute(text(
+                "DELETE FROM stories WHERE id = :story_id"
+            ), {"story_id": story_id})
+
             session.commit()
             logger.info(f"Story {story_id} deleted successfully.")
 

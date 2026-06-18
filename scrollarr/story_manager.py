@@ -1214,14 +1214,34 @@ class StoryManager:
 
         except Exception as e:
             try:
-                # Run detailed SQLite foreign key violation diagnostics
-                cursor = session.connection().connection.cursor()
-                cursor.execute("PRAGMA foreign_key_check")
-                violations = cursor.fetchall()
-                logger.error(f"[Delete Story {story_id}] PRAGMA foreign_key_check results: {violations}")
-            except Exception as fk_diag_e:
-                logger.error(f"Failed to execute PRAGMA foreign_key_check: {fk_diag_e}")
-            session.rollback()
+                # Keep track of chapter IDs we tried to delete
+                chap_ids = [c.id for c in chapters] if 'chapters' in locals() else []
+                session.rollback()
+                if chap_ids:
+                    cursor = session.connection().connection.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                    tables = [row[0] for row in cursor.fetchall()]
+                    referencing_cols = []
+                    for tbl in tables:
+                        cursor.execute(f"PRAGMA foreign_key_list({tbl})")
+                        for fk in cursor.fetchall():
+                            if fk[2] == 'chapters':
+                                referencing_cols.append((tbl, fk[3]))
+                    
+                    logger.error(f"[Delete Story {story_id}] Tables referencing 'chapters': {referencing_cols}")
+                    for tbl, col in referencing_cols:
+                        cursor.execute(f"SELECT * FROM {tbl} WHERE {col} IN ({','.join(map(str, chap_ids))})")
+                        rows = cursor.fetchall()
+                        if rows:
+                            logger.error(f"[Delete Story {story_id}] Found active referencing rows in {tbl}.{col}: {rows}")
+                else:
+                    logger.error(f"[Delete Story {story_id}] No chapter IDs captured for diagnostics.")
+            except Exception as diag_e:
+                logger.error(f"Failed to execute post-rollback diagnostics: {diag_e}")
+            try:
+                session.rollback()
+            except Exception:
+                pass
             logger.error(f"Error deleting story {story_id}: {e}")
             raise e
         finally:

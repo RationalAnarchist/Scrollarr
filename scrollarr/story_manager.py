@@ -1173,8 +1173,20 @@ class StoryManager:
                      logger.error(f"Error during fallback deletion: {e}")
 
             # Delete database records
-            # Manually delete history
-            session.query(DownloadHistory).filter(DownloadHistory.story_id == story_id).delete()
+            # Manually delete history referencing this story or any of its chapters
+            chapter_ids = [c.id for c in story.chapters]
+            if chapter_ids:
+                histories = session.query(DownloadHistory).filter(
+                    (DownloadHistory.story_id == story_id) | (DownloadHistory.chapter_id.in_(chapter_ids))
+                ).all()
+            else:
+                histories = session.query(DownloadHistory).filter(
+                    DownloadHistory.story_id == story_id
+                ).all()
+
+            for h in histories:
+                session.delete(h)
+            session.flush()
 
             # Delete story (cascades to chapters)
             session.delete(story)

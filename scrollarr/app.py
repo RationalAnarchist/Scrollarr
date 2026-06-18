@@ -665,7 +665,24 @@ async def get_calendar_events(response: Response, start: Optional[str] = None, e
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """Render the settings page."""
-    return templates.TemplateResponse(request=request, name="settings.html", context={"request": request})
+    import subprocess
+    version = "1.1.2"
+    commit_hash = "Unknown"
+    commit_date = "Unknown"
+    try:
+        # Run in working directory to ensure it finds the repository
+        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        commit_hash = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=cwd).decode("utf-8").strip()
+        commit_date = subprocess.check_output(["git", "show", "-s", "--format=%ci", "HEAD"], cwd=cwd).decode("utf-8").strip()
+    except Exception:
+        pass
+
+    return templates.TemplateResponse(request=request, name="settings.html", context={
+        "request": request,
+        "version": version,
+        "commit_hash": commit_hash,
+        "commit_date": commit_date
+    })
 
 @app.get("/settings/naming", response_class=HTMLResponse)
 async def naming_settings_page(request: Request):

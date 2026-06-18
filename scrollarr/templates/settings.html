@@ -130,10 +130,59 @@
             </div>
         </form>
     </div>
+
+    <div class="bg-gray-800 rounded-lg p-6 shadow-lg max-w-2xl mt-6 border border-gray-700">
+        <h2 class="text-xl font-bold mb-4 text-gray-200">System Information</h2>
+        <div class="space-y-3 text-sm text-gray-300">
+            <div class="flex justify-between border-b border-gray-700 pb-2">
+                <span class="font-semibold text-gray-400">Version</span>
+                <span class="text-white font-medium">v{{ version }}</span>
+            </div>
+            <div class="flex justify-between border-b border-gray-700 pb-2">
+                <span class="font-semibold text-gray-400">Git Commit</span>
+                <code class="text-blue-400 bg-gray-900 px-2 py-0.5 rounded font-mono text-xs select-all">{{ commit_hash }}</code>
+            </div>
+            <div class="flex justify-between border-b border-gray-700 pb-2">
+                <span class="font-semibold text-gray-400">Commit Date</span>
+                <span class="text-white font-medium">{{ commit_date }}</span>
+            </div>
+            <div class="flex justify-between pb-1 items-center">
+                <span class="font-semibold text-gray-400">Update Status</span>
+                <span id="update-status" class="text-white font-medium">
+                    <button type="button" onclick="checkForUpdates()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-xs transition-colors shadow">Check for Updates</button>
+                </span>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}
     <script>
+        async function checkForUpdates() {
+            const statusEl = document.getElementById('update-status');
+            const currentCommit = "{{ commit_hash }}".trim();
+            
+            statusEl.innerHTML = '<span class="text-gray-400 text-xs">Checking...</span>';
+            
+            try {
+                const response = await fetch('https://api.github.com/repos/RationalAnarchist/Scrollarr/commits/main');
+                if (!response.ok) throw new Error('GitHub API error');
+                
+                const data = await response.json();
+                const latestCommit = data.sha.substring(0, 7);
+                
+                if (currentCommit === 'Unknown') {
+                    statusEl.innerHTML = `<span class="text-yellow-500 text-xs font-semibold">Latest: ${latestCommit}</span>`;
+                } else if (currentCommit === latestCommit) {
+                    statusEl.innerHTML = '<span class="text-green-500 text-xs font-semibold flex items-center gap-1">✓ Up to Date</span>';
+                } else {
+                    statusEl.innerHTML = `<span class="text-blue-400 text-xs font-semibold">Update Available (Latest: ${latestCommit})</span>`;
+                }
+            } catch (err) {
+                statusEl.innerHTML = '<span class="text-red-500 text-xs font-semibold">Check Failed</span>';
+                console.error(err);
+            }
+        }
         let fullSettings = {};
 
         function toggleTheme(theme) {

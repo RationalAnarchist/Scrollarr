@@ -1174,10 +1174,48 @@ class StoryManager:
                      logger.error(f"Error during fallback deletion: {e}")
 
             # Delete database records
+            # Diagnostics: Find all tables referencing 'chapters' in the active database
+            try:
+                cursor = session.connection().connection.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = [row[0] for row in cursor.fetchall()]
+                referencing_fks = []
+                for tbl in tables:
+                    cursor.execute(f"PRAGMA foreign_key_list({tbl})")
+                    for fk in cursor.fetchall():
+                        if fk[2] == 'chapters':
+                            referencing_fks.append((tbl, fk[3], fk[4]))
+                logger.info(f"[Delete Story {story_id}] Tables referencing 'chapters' table: {referencing_fks}")
+                
+                # Fetch chapter IDs
+                cursor.execute("SELECT id FROM chapters WHERE story_id = ?", (story_id,))
+                chap_ids = [row[0] for row in cursor.fetchall()]
+                logger.info(f"[Delete Story {story_id}] Chapter IDs to delete: {chap_ids}")
+                
+                if chap_ids:
+                    placeholders = ','.join('?' for _ in chap_ids)
+                    cursor.execute(f"SELECT id, chapter_id, story_id FROM download_history WHERE chapter_id IN ({placeholders})", chap_ids)
+                    logger.info(f"[Delete Story {story_id}] Pre-delete matching download_history rows: {cursor.fetchall()}")
+                else:
+                    logger.info(f"[Delete Story {story_id}] No chapters found in DB.")
+            except Exception as diag_e:
+                logger.warning(f"Failed to run pre-deletion diagnostics: {diag_e}")
+
             # 1. Delete all download_history records referencing the story or its chapters
             session.execute(text(
                 "DELETE FROM download_history WHERE story_id = :story_id OR chapter_id IN (SELECT id FROM chapters WHERE story_id = :story_id)"
             ), {"story_id": story_id})
+            session.flush()
+
+            # Verify deletion of history records
+            try:
+                if 'chap_ids' in locals() and chap_ids:
+                    cursor = session.connection().connection.cursor()
+                    placeholders = ','.join('?' for _ in chap_ids)
+                    cursor.execute(f"SELECT id, chapter_id, story_id FROM download_history WHERE chapter_id IN ({placeholders})", chap_ids)
+                    logger.info(f"[Delete Story {story_id}] Post-delete matching download_history rows: {cursor.fetchall()}")
+            except Exception as diag_e:
+                logger.warning(f"Failed to run post-deletion history check: {diag_e}")
 
             # 2. Delete all chapters belonging to the story
             session.execute(text(
@@ -1205,7 +1243,7 @@ class StoryManager:
                     cursor = conn.cursor()
                     
                     # Capture chapter IDs we tried to delete
-                    chap_ids = [c.id for c in chapters] if 'chapters' in locals() else []
+                    chap_ids = chap_ids if 'chap_ids' in locals() else []
                     if chap_ids:
                         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
                         tables = [row[0] for row in cursor.fetchall()]

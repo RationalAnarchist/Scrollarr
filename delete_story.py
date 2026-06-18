@@ -35,6 +35,10 @@ def main():
         chap_ids = [row[0] for row in cursor.fetchall()]
         print(f"Chapters found in DB for story {story_id}: {len(chap_ids)}")
         
+        # Diagnostics: Print rows with rowids 1, 2, 3, 4, 5 in download_history
+        cursor.execute("SELECT * FROM download_history WHERE id IN (1, 2, 3, 4, 5)")
+        print(f"Download history rows 1-5: {cursor.fetchall()}")
+        
         if chap_ids:
             placeholders = ','.join('?' for _ in chap_ids)
             cursor.execute(f"SELECT id, chapter_id, story_id FROM download_history WHERE chapter_id IN ({placeholders})", chap_ids)

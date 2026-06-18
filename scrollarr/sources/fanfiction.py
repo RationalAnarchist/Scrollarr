@@ -140,34 +140,45 @@ class FanFictionSource(BaseSource):
                         # Fichub HTML structure: <h1>Title</h1> <h2>by Author</h2> <h2>Chapter 1</h2> <p>...</p> <h2>Chapter 2</h2> ...
                         # We can split elements based on <h2>
                         chapters_dict = {}
-                        for h2 in soup.find_all('h2'):
-                            text = h2.get_text(strip=True).lower()
-                            if text.startswith('chapter '):
-                                try:
-                                    num_str = text.replace('chapter ', '').split()[0]
-                                    current_idx = int(num_str)
-                                except:
+                        
+                        # 1. Primary: Extract via Fichub's standard id="chap_X" div tags
+                        for div in soup.find_all('div', id=lambda val: val and val.startswith('chap_')):
+                            try:
+                                current_idx = int(div['id'].replace('chap_', ''))
+                                chapters_dict[current_idx] = str(div)
+                            except ValueError:
+                                continue
+                        
+                        # 2. Fallback: Parse via h2 elements if no id="chap_X" divs are found
+                        if not chapters_dict:
+                            h2s = soup.find_all('h2')
+                            chapter_h2s = []
+                            for h2 in h2s:
+                                text = h2.get_text(strip=True).lower()
+                                if text.startswith('by ') or text.startswith('by:'):
                                     continue
+                                chapter_h2s.append(h2)
                                 
+                            for idx, h2 in enumerate(chapter_h2s):
+                                current_idx = idx + 1
                                 parent = h2.parent
                                 if parent and parent.name == 'div':
                                     chapters_dict[current_idx] = str(parent)
                                 else:
-                                    # Fallback: collect siblings until next h2
                                     content = [str(h2)]
                                     node = h2.next_sibling
                                     while node and getattr(node, 'name', '') != 'h2':
                                         content.append(str(node))
                                         node = node.next_sibling
                                     chapters_dict[current_idx] = "".join(content)
-                            
-                        # If it's a single chapter story, there might not be a "Chapter 1" h2.
+                                    
+                        # 3. Final Fallback: Single-chapter stories
                         if not chapters_dict:
                             # Grab everything after h1 and h2(by Author)
                             content = []
                             past_header = False
                             for child in soup.body.children:
-                                if child.name == 'h2' and getattr(child, 'text', '').startswith('by'):
+                                if child.name == 'h2' and (getattr(child, 'text', '').startswith('by') or 'by ' in getattr(child, 'text', '').lower()):
                                     past_header = True
                                     continue
                                 if past_header:

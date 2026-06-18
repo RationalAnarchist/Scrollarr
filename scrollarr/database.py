@@ -39,6 +39,7 @@ class Story(Base):
 
     chapters = relationship("Chapter", back_populates="story", cascade="all, delete-orphan")
     profile = relationship("EbookProfile")
+    download_histories = relationship("DownloadHistory", back_populates="story", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Story(title='{self.title}', author='{self.author}')>"
@@ -60,6 +61,7 @@ class Chapter(Base):
     tags = Column(String, nullable=True)
 
     story = relationship("Story", back_populates="chapters")
+    download_histories = relationship("DownloadHistory", back_populates="chapter", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Chapter(title='{self.title}', story_id={self.story_id})>"
@@ -75,8 +77,8 @@ class DownloadHistory(Base):
     timestamp = Column(DateTime, server_default=func.now())
     details = Column(String, nullable=True)
 
-    chapter = relationship("Chapter")
-    story = relationship("Story")
+    chapter = relationship("Chapter", back_populates="download_histories")
+    story = relationship("Story", back_populates="download_histories")
 
     def __repr__(self):
         return f"<DownloadHistory(chapter_id={self.chapter_id}, status='{self.status}')>"

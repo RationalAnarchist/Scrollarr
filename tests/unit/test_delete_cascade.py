@@ -74,20 +74,24 @@ class TestDeleteCascade(unittest.TestCase):
 
         # 4. Perform the same delete sequence as story_manager.delete_story
         story_id = story.id
-        chapter_ids = [c.id for c in story.chapters]
-        if chapter_ids:
-            histories = self.session.query(DownloadHistory).filter(
-                (DownloadHistory.story_id == story_id) | (DownloadHistory.chapter_id.in_(chapter_ids))
-            ).all()
-        else:
-            histories = self.session.query(DownloadHistory).filter(
-                DownloadHistory.story_id == story_id
-            ).all()
-
+        # 1. Fetch and delete all history records referencing this story or any of its chapters
+        histories = self.session.query(DownloadHistory).filter(
+            (DownloadHistory.story_id == story_id) |
+            (DownloadHistory.chapter_id.in_(
+                self.session.query(Chapter.id).filter(Chapter.story_id == story_id)
+            ))
+        ).all()
         for h in histories:
             self.session.delete(h)
         self.session.flush()
 
+        # 2. Fetch and delete all chapters for this story
+        chapters = self.session.query(Chapter).filter(Chapter.story_id == story_id).all()
+        for c in chapters:
+            self.session.delete(c)
+        self.session.flush()
+
+        # 3. Delete the story itself
         self.session.delete(story)
         self.session.commit()
 

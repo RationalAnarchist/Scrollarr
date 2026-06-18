@@ -1213,35 +1213,50 @@ class StoryManager:
             logger.info(f"Story {story_id} deleted successfully.")
 
         except Exception as e:
+            session.rollback()
             try:
-                # Keep track of chapter IDs we tried to delete
-                chap_ids = [c.id for c in chapters] if 'chapters' in locals() else []
-                session.rollback()
-                if chap_ids:
-                    cursor = session.connection().connection.cursor()
-                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-                    tables = [row[0] for row in cursor.fetchall()]
-                    referencing_cols = []
-                    for tbl in tables:
-                        cursor.execute(f"PRAGMA foreign_key_list({tbl})")
-                        for fk in cursor.fetchall():
-                            if fk[2] == 'chapters':
-                                referencing_cols.append((tbl, fk[3]))
+                # Use a completely fresh, direct sqlite3 connection to avoid the rolled back session transaction
+                import sqlite3
+                # Get the database path
+                db_url = str(engine.url)
+                db_path = db_url.replace("sqlite:///", "")
+                if os.path.exists(db_path):
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
                     
-                    logger.error(f"[Delete Story {story_id}] Tables referencing 'chapters': {referencing_cols}")
-                    for tbl, col in referencing_cols:
-                        cursor.execute(f"SELECT * FROM {tbl} WHERE {col} IN ({','.join(map(str, chap_ids))})")
-                        rows = cursor.fetchall()
-                        if rows:
-                            logger.error(f"[Delete Story {story_id}] Found active referencing rows in {tbl}.{col}: {rows}")
-                else:
-                    logger.error(f"[Delete Story {story_id}] No chapter IDs captured for diagnostics.")
+                    # Capture chapter IDs we tried to delete
+                    chap_ids = [c.id for c in chapters] if 'chapters' in locals() else []
+                    if chap_ids:
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                        tables = [row[0] for row in cursor.fetchall()]
+                        referencing_cols = []
+                        for tbl in tables:
+                            cursor.execute(f"PRAGMA foreign_key_list({tbl})")
+                            for fk in cursor.fetchall():
+                                if fk[2] == 'chapters':
+                                    referencing_cols.append((tbl, fk[3]))
+                        
+                        logger.error(f"[Delete Story {story_id}] Direct SQLite Tables referencing 'chapters': {referencing_cols}")
+                        for tbl, col in referencing_cols:
+                            placeholders = ','.join('?' for _ in chap_ids)
+                            cursor.execute(f"SELECT * FROM {tbl} WHERE {col} IN ({placeholders})", chap_ids)
+                            rows = cursor.fetchall()
+                            if rows:
+                                # Get column names and types
+                                cursor.execute(f"PRAGMA table_info({tbl})")
+                                cols_info = cursor.fetchall()
+                                logger.error(f"[Delete Story {story_id}] Table {tbl} schema: {cols_info}")
+                                logger.error(f"[Delete Story {story_id}] Found referencing rows in SQLite {tbl}.{col}:")
+                                for r in rows:
+                                    logger.error(f"  Row: {r} (Types: {[type(val).__name__ for val in r]})")
+                            else:
+                                logger.error(f"[Delete Story {story_id}] No referencing rows found in SQLite {tbl}.{col} for IDs {chap_ids[:5]}...")
+                    else:
+                        logger.error(f"[Delete Story {story_id}] No chapter IDs captured for SQLite diagnostics.")
+                    conn.close()
             except Exception as diag_e:
-                logger.error(f"Failed to execute post-rollback diagnostics: {diag_e}")
-            try:
-                session.rollback()
-            except Exception:
-                pass
+                logger.error(f"Failed to execute direct SQLite diagnostics: {diag_e}", exc_info=True)
+            
             logger.error(f"Error deleting story {story_id}: {e}")
             raise e
         finally:

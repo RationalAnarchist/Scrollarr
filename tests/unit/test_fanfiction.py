@@ -116,5 +116,65 @@ class TestFanFictionSource(unittest.TestCase):
         self.assertEqual(results[0]['author'], "Author Name")
         self.assertEqual(results[0]['url'], "https://www.fanfiction.net/s/999/1")
 
+    @patch('requests.get')
+    def test_get_chapter_content_chap_id(self, mock_get):
+        self.source._fichub_cache.clear()
+        mock_meta_response = MagicMock()
+        mock_meta_response.status_code = 200
+        mock_meta_response.json.return_value = {"html_url": "/epub/124.zip"}
+        
+        mock_zip_response = MagicMock()
+        mock_zip_response.status_code = 200
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            html_content = '<html><body><div id="chap_1"><h2>Custom Title 1</h2><p>Chapter 1 text</p></div><div id="chap_2"><h2>Custom Title 2</h2><p>Chapter 2 text</p></div></body></html>'
+            zf.writestr("story.html", html_content)
+        mock_zip_response.content = zip_buffer.getvalue()
+
+        def get_side_effect(url, **kwargs):
+            if "fichub.net/api/v0/epub" in url:
+                return mock_meta_response
+            elif "fichub.net/epub/" in url:
+                return mock_zip_response
+            return MagicMock(status_code=404)
+            
+        mock_get.side_effect = get_side_effect
+
+        content1 = self.source.get_chapter_content("https://www.fanfiction.net/s/124/1")
+        self.source._fichub_cache.clear() # clear cache to test same URL but different index
+        content2 = self.source.get_chapter_content("https://www.fanfiction.net/s/124/2")
+        self.assertIn("Chapter 1 text", content1)
+        self.assertIn("Chapter 2 text", content2)
+
+    @patch('requests.get')
+    def test_get_chapter_content_h2_custom_title(self, mock_get):
+        self.source._fichub_cache.clear()
+        mock_meta_response = MagicMock()
+        mock_meta_response.status_code = 200
+        mock_meta_response.json.return_value = {"html_url": "/epub/125.zip"}
+        
+        mock_zip_response = MagicMock()
+        mock_zip_response.status_code = 200
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zf:
+            html_content = '<html><body><h1>Book Title</h1><h2>by Test Author</h2><h2>Literally Incredible</h2><p>Chapter 1 body</p><h2>Dissemination</h2><p>Chapter 2 body</p></body></html>'
+            zf.writestr("story.html", html_content)
+        mock_zip_response.content = zip_buffer.getvalue()
+
+        def get_side_effect(url, **kwargs):
+            if "fichub.net/api/v0/epub" in url:
+                return mock_meta_response
+            elif "fichub.net/epub/" in url:
+                return mock_zip_response
+            return MagicMock(status_code=404)
+            
+        mock_get.side_effect = get_side_effect
+
+        content1 = self.source.get_chapter_content("https://www.fanfiction.net/s/125/1")
+        self.source._fichub_cache.clear()
+        content2 = self.source.get_chapter_content("https://www.fanfiction.net/s/125/2")
+        self.assertIn("Chapter 1 body", content1)
+        self.assertIn("Chapter 2 body", content2)
+
 if __name__ == '__main__':
     unittest.main()

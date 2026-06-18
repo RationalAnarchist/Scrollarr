@@ -34,12 +34,19 @@ if __name__ == "__main__":
     reload_excludes = [
         "config/*.json",
         "config/*.tmp",
+        "config/*.db*",
         "*.db",
         "*.db-journal",
         "*.db-wal",
         "*.db-shm",
         "logs/*",
-        "*.log"
+        "*.log",
+        "library/*",
+        "library/**/*",
+        "saved_stories/*",
+        "saved_stories/**/*",
+        "verification_downloads/*",
+        "verification_downloads/**/*"
     ]
 
     uvicorn.run(

@@ -25,6 +25,11 @@ def main():
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
+    # Check database integrity
+    cursor.execute("PRAGMA integrity_check")
+    integrity = cursor.fetchall()
+    print(f"Database Integrity Check: {integrity}")
+    
     # Enable foreign keys
     cursor.execute("PRAGMA foreign_keys=ON")
     

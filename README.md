@@ -146,15 +146,22 @@ sudo systemctl enable scrollarr
 sudo systemctl start scrollarr
 ```
 
-### Option 2: Docker
+### Option 2: Docker / Docker Compose
 
-You can run Scrollarr using Docker. The image supports both `amd64` and `arm64` (Raspberry Pi) architectures.
+You can run Scrollarr using Docker or Docker Compose. The image supports both `amd64` and `arm64` (Raspberry Pi) architectures. To enable the automatic self-updater feature from the web UI, map the host's Docker socket into the container using the `-v /var/run/docker.sock:/var/run/docker.sock` flag.
 
-**Run with Docker:**
+**Run with Docker Compose (Recommended):**
+You can use the provided [docker-compose.yml](file:///c:/Users/zelaz/Antigravity/Scrollarr/Scrollarr/docker-compose.yml) to start the app:
+```bash
+docker compose up -d
+```
+
+**Run with Docker CLI:**
 ```bash
 docker run -d \
   --name scrollarr \
   -p 8000:8000 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   -v $(pwd)/config:/app/config \
   -v $(pwd)/library:/app/library \
   -v $(pwd)/saved_stories:/app/saved_stories \
@@ -176,6 +183,7 @@ Scrollarr is ready for deployment on Kubernetes clusters, including K3s on Raspb
     ```
 
     *Note: Check `k8s/pvc.yaml` and `k8s/deployment.yaml` to customize storage sizes, volume paths, and the image name.*
+    *To enable the automatic self-updater in Kubernetes, ensure the pod's service account has strategic-merge patch permissions on `deployments/scrollarr` within its namespace.*
     *If your image is hosted on a private registry, ensure you add `imagePullSecrets` to the `k8s/deployment.yaml` file.*
 
 3.  **Access the application:**

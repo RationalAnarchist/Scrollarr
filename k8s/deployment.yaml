@@ -16,6 +16,7 @@ spec:
       labels:
         app: scrollarr
     spec:
+      serviceAccountName: scrollarr
       containers:
         - name: scrollarr
           # Replace with your image name if running from a fork or private registry

@@ -33,6 +33,22 @@ from .auth import is_local_ip, verify_api_key, verify_password, get_password_has
 setup_logging(log_level=config_manager.get('log_level'), log_file='logs/scrollarr.log')
 logger = logging.getLogger(__name__)
 
+def get_app_version() -> str:
+    """Reads the application version from version.txt, falling back to version.json or a default."""
+    try:
+        txt_path = Path(__file__).parent / "version.txt"
+        if txt_path.exists():
+            return txt_path.read_text().strip()
+        
+        json_path = Path(__file__).parent / "version.json"
+        if json_path.exists():
+            import json
+            data = json.loads(json_path.read_text())
+            return f"{data.get('major', 0)}.{data.get('minor', 5)}.{data.get('patch', 1)}"
+    except Exception as e:
+         pass
+    return "0.5.1"
+
 START_TIME = time.time()
 
 app = FastAPI(title="Scrollarr")
@@ -309,6 +325,7 @@ class SettingsRequest(BaseModel):
     auth_password: Optional[str] = None
     local_auth_disabled: bool = False
     discord_bot_token: Optional[str] = None
+    update_webhook_url: Optional[str] = None
 
 class ProfileCreate(BaseModel):
     name: str
@@ -532,6 +549,225 @@ async def tasks_page(request: Request):
 async def backups_page(request: Request):
     """Render the backups page."""
     return templates.TemplateResponse(request=request, name="backups.html", context={"request": request})
+
+@app.get("/system/updates", response_class=HTMLResponse)
+async def updates_page(request: Request):
+    """Render the updates page."""
+    import subprocess
+    version = get_app_version()
+    commit_hash = "Unknown"
+    commit_date = "Unknown"
+    try:
+        # Run in working directory to ensure it finds the repository
+        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        commit_hash = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=cwd).decode("utf-8").strip()
+        commit_date = subprocess.check_output(["git", "show", "-s", "--format=%ci", "HEAD"], cwd=cwd).decode("utf-8").strip()
+    except Exception:
+        pass
+
+    return templates.TemplateResponse(request=request, name="updates.html", context={
+        "request": request,
+        "version": version,
+        "commit_hash": commit_hash,
+        "commit_date": commit_date
+    })
+
+@app.get("/api/system/updates/check")
+async def check_updates_api():
+    """Queries the remote main branch on GitHub and maps tags to commit history."""
+    import subprocess
+    import httpx
+    
+    local_version = get_app_version()
+    local_commit = "Unknown"
+    try:
+        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=cwd).decode("utf-8").strip()
+    except Exception:
+        pass
+
+    commits_url = "https://api.github.com/repos/RationalAnarchist/Scrollarr/commits?sha=main"
+    tags_url = "https://api.github.com/repos/RationalAnarchist/Scrollarr/tags"
+    headers = {"User-Agent": "Scrollarr-App"}
+    
+    commits_data = []
+    tags_data = []
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # 1. Fetch commits
+            commits_res = await client.get(commits_url, headers=headers)
+            if commits_res.status_code == 200:
+                commits_data = commits_res.json()
+            else:
+                raise Exception(f"Failed to fetch commits: status code {commits_res.status_code}")
+                
+            # 2. Fetch tags
+            tags_res = await client.get(tags_url, headers=headers)
+            if tags_res.status_code == 200:
+                tags_data = tags_res.json()
+    except Exception as e:
+        logger.error(f"Error checking updates from GitHub: {e}")
+        return {
+            "error": f"Failed to check for updates: {str(e)}",
+            "up_to_date": True,
+            "pending_commits": []
+        }
+
+    # Map commit SHAs to Tag names
+    commit_to_tag = {}
+    if tags_data and isinstance(tags_data, list):
+        for tag in tags_data:
+            sha = tag.get("commit", {}).get("sha", "")
+            if sha:
+                commit_to_tag[sha] = tag.get("name", "")
+
+    pending_commits = []
+    up_to_date = True
+    latest_commit = "Unknown"
+    
+    if commits_data and isinstance(commits_data, list):
+        latest_commit = commits_data[0].get("sha", "")[:7]
+        
+        found_local = False
+        for c in commits_data:
+            sha = c.get("sha", "")
+            if local_commit and (sha == local_commit or sha.startswith(local_commit)):
+                found_local = True
+                break
+            
+            commit_info = c.get("commit", {})
+            author_info = commit_info.get("author", {})
+            tag_name = commit_to_tag.get(sha, "")
+            
+            pending_commits.append({
+                "sha": sha[:7],
+                "message": commit_info.get("message", "").split("\n")[0],
+                "author": author_info.get("name", "Unknown"),
+                "date": author_info.get("date", ""),
+                "tag": tag_name
+            })
+            
+        if not found_local:
+            up_to_date = (local_commit == commits_data[0].get("sha", ""))
+        else:
+            up_to_date = (len(pending_commits) == 0)
+
+    return {
+        "local_version": local_version,
+        "local_commit": local_commit[:7] if local_commit != "Unknown" else "Unknown",
+        "latest_commit": latest_commit[:7],
+        "up_to_date": up_to_date,
+        "pending_commits": pending_commits
+    }
+
+@app.post("/api/system/updates/trigger")
+async def trigger_update():
+    """Triggers the self-update process using K8s API, Docker socket, or custom webhook."""
+    import os
+    import httpx
+    
+    # 1. Kubernetes Mode
+    k8s_token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    k8s_namespace_path = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+    if os.path.exists(k8s_token_path) and os.path.exists(k8s_namespace_path):
+        try:
+            logger.info("Auto-updater: Kubernetes deployment environment detected.")
+            with open(k8s_token_path, "r") as f:
+                token = f.read().strip()
+            with open(k8s_namespace_path, "r") as f:
+                namespace = f.read().strip()
+                
+            # Rollout restart the deployment/scrollarr
+            url = f"https://kubernetes.default.svc/apis/apps/v1/namespaces/{namespace}/deployments/scrollarr"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/strategic-merge-patch+json"
+            }
+            
+            import datetime
+            patch_data = {
+                "spec": {
+                    "template": {
+                        "metadata": {
+                            "annotations": {
+                                "kubectl.kubernetes.io/restartedAt": datetime.datetime.now().isoformat()
+                            }
+                        }
+                    }
+                }
+            }
+            # Disable SSL verification since we connect internally to default cluster service
+            async with httpx.AsyncClient(verify=False) as client:
+                response = await client.patch(url, headers=headers, json=patch_data)
+                if response.status_code == 200:
+                    logger.info("Kubernetes rollout restart patch applied successfully.")
+                    return {"status": "success", "message": "Kubernetes rollout restart triggered successfully."}
+                else:
+                    raise Exception(f"Kubernetes API returned {response.status_code}: {response.text}")
+        except Exception as k8s_err:
+            logger.error(f"Kubernetes self-update failed: {k8s_err}")
+            raise HTTPException(status_code=500, detail=f"Kubernetes update failed: {str(k8s_err)}")
+            
+    # 2. Docker Socket Mode
+    docker_socket_path = "/var/run/docker.sock"
+    if os.path.exists(docker_socket_path):
+        try:
+            logger.info("Auto-updater: Docker socket deployment environment detected.")
+            transport = httpx.AsyncHTTPTransport(uds=docker_socket_path)
+            async with httpx.AsyncClient(transport=transport) as client:
+                # Pull the latest image
+                pull_url = "http://localhost/images/create?fromImage=ghcr.io/rationalanarchist/scrollarr:latest"
+                pull_res = await client.post(pull_url)
+                if pull_res.status_code != 200:
+                    raise Exception(f"Failed to pull latest image from registry: {pull_res.text}")
+                    
+                # Recreate container / restart self
+                import socket
+                container_id = socket.gethostname()
+                restart_url = f"http://localhost/containers/{container_id}/restart"
+                
+                # Trigger async restart so container has time to send HTTP success response
+                import asyncio
+                async def delayed_restart():
+                    await asyncio.sleep(2)
+                    async with httpx.AsyncClient(transport=transport) as c:
+                        await c.post(restart_url)
+                asyncio.create_task(delayed_restart())
+                
+                logger.info("Docker image pulled and container restart scheduled.")
+                return {"status": "success", "message": "Latest Docker image pulled. Container restart scheduled."}
+        except Exception as docker_err:
+            logger.error(f"Docker self-update failed: {docker_err}")
+            raise HTTPException(status_code=500, detail=f"Docker update failed: {str(docker_err)}")
+            
+    # 3. Webhook Mode (Fallback)
+    webhook_url = config_manager.get("update_webhook_url")
+    if webhook_url:
+        try:
+            logger.info(f"Auto-updater: Custom webhook trigger detected: {webhook_url}")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(webhook_url, json={"trigger": "scrollarr_update", "version": "latest"})
+                if response.status_code in [200, 201, 202, 204]:
+                    logger.info("Custom update webhook triggered successfully.")
+                    return {"status": "success", "message": "Update webhook triggered successfully."}
+                else:
+                    raise Exception(f"Webhook returned status code {response.status_code}")
+        except Exception as web_err:
+            logger.error(f"Webhook self-update failed: {web_err}")
+            raise HTTPException(status_code=500, detail=f"Webhook update failed: {str(web_err)}")
+            
+    # 4. Development / Local Testing Dry-Run Mode
+    # If running in development (has .git directory or SCROLLARR_DEV_MODE is enabled), simulate a successful trigger.
+    cwd_git = os.path.exists(".git") or os.path.exists("../.git") or os.path.exists("../../.git")
+    if cwd_git or os.getenv("SCROLLARR_DEV_MODE", "false").lower() in ("true", "1"):
+        logger.info("Auto-updater: Development environment detected. Simulating dry-run update.")
+        return {"status": "success", "message": "Development environment detected. Simulated update pull and reload successfully (dry-run)."}
+
+    raise HTTPException(
+        status_code=400,
+        detail="No updater method configured. Mount /var/run/docker.sock, run in Kubernetes, or configure an Update Webhook URL in settings."
+    )
 
 @app.get("/api/system/backups")
 async def get_system_backups():
@@ -757,23 +993,8 @@ async def get_calendar_events(response: Response, start: Optional[str] = None, e
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """Render the settings page."""
-    import subprocess
-    version = "1.1.2"
-    commit_hash = "Unknown"
-    commit_date = "Unknown"
-    try:
-        # Run in working directory to ensure it finds the repository
-        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        commit_hash = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=cwd).decode("utf-8").strip()
-        commit_date = subprocess.check_output(["git", "show", "-s", "--format=%ci", "HEAD"], cwd=cwd).decode("utf-8").strip()
-    except Exception:
-        pass
-
     return templates.TemplateResponse(request=request, name="settings.html", context={
-        "request": request,
-        "version": version,
-        "commit_hash": commit_hash,
-        "commit_date": commit_date
+        "request": request
     })
 
 @app.get("/settings/naming", response_class=HTMLResponse)
@@ -936,6 +1157,7 @@ async def update_settings(settings: SettingsRequest):
             "full_story_name_format": settings.full_story_name_format,
             "auth_method": settings.auth_method,
             "local_auth_disabled": settings.local_auth_disabled,
+            "update_webhook_url": settings.update_webhook_url,
         }
 
         if settings.discord_bot_token is not None and settings.discord_bot_token != "********":

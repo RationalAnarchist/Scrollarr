@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block title %}System Updates - Scrollarr{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto space-y-6">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-3xl font-bold tracking-tight text-white">System Updates</h2>
+        <button onclick="checkForUpdates()" id="btn-check-updates" class="px-4 py-2 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-colors">
+            Check for Updates
+        </button>
+    </div>
+
+    <!-- Error Banner -->
+    <div id="error-banner" class="hidden bg-red-900/80 border border-red-800 text-white px-4 py-3 rounded-lg relative mb-4" role="alert">
+        <strong class="font-bold">Error!</strong>
+        <span class="block sm:inline" id="error-message"></span>
+    </div>
+
+    <!-- Info Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Current Version Card -->
+        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 shadow-sm">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Current Version</h3>
+            <p class="text-3xl font-bold text-white mb-2">{{ version }}</p>
+            <p class="text-xs text-gray-500">Local version file status</p>
+        </div>
+
+        <!-- Git Commit Card -->
+        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 shadow-sm">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Local Commit</h3>
+            <p class="text-xl font-mono font-bold text-blue-400 mb-2">{{ commit_hash }}</p>
+            <p class="text-xs text-gray-500">HEAD commit ref</p>
+        </div>
+
+        <!-- Git Date Card -->
+        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 shadow-sm">
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Commit Date</h3>
+            <p class="text-lg font-medium text-white mb-2" id="local-commit-date">{{ commit_date }}</p>
+            <p class="text-xs text-gray-500">Date of current local commit</p>
+        </div>
+    </div>
+
+    <!-- Update Status Card -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 shadow-sm">
+        <h3 class="text-lg font-semibold text-white mb-4">Update Status</h3>
+        <div id="status-container" class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-gray-800/40 rounded-lg border border-gray-800">
+            <div class="flex items-center space-x-4">
+                <div class="p-3 bg-zinc-800 rounded-full text-zinc-400 flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div>
+                    <p class="font-medium text-white" id="status-title">Status Unknown</p>
+                    <p class="text-sm text-gray-400" id="status-desc">Click "Check for Updates" to pull latest information from GitHub main branch.</p>
+                </div>
+            </div>
+            <div class="flex-shrink-0">
+                <button onclick="triggerUpdate()" id="btn-trigger-update" class="hidden px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow transition-all duration-200 flex items-center space-x-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                    <span>Update App</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Live Progress / Update Logs Console -->
+        <div id="update-progress-container" class="hidden mt-6 space-y-3">
+            <div class="flex justify-between items-center text-sm font-semibold text-gray-300">
+                <span class="flex items-center space-x-2">
+                    <svg class="animate-spin h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Applying updates...</span>
+                </span>
+                <span id="update-timer" class="text-xs text-gray-500">Initializing...</span>
+            </div>
+            <div class="bg-black/80 font-mono text-xs text-blue-400 p-4 rounded-lg border border-gray-800 max-h-40 overflow-y-auto space-y-1" id="update-logs">
+                <p class="text-gray-500">[System] Initializing updater...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Changelog Section -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden shadow-sm">
+        <div class="px-6 py-4 bg-gray-800/50 border-b border-gray-800">
+            <h3 class="text-lg font-semibold text-white">Changelog (Pending Changes)</h3>
+            <p class="text-xs text-gray-400">Commits present on GitHub main branch but not yet running on this local instance</p>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-800">
+                <thead class="bg-gray-800">
+                    <tr>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Commit SHA</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Message</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Author</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Date</th>
+                    </tr>
+                </thead>
+                <tbody id="changelog-body" class="bg-gray-900 divide-y divide-gray-800">
+                    <tr>
+                        <td colspan="4" class="px-6 py-8 text-center text-gray-500">
+                            Changelog status will be populated once you check for updates.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Format the date if it's not "Unknown"
+        const dateEl = document.getElementById("local-commit-date");
+        if (dateEl && dateEl.innerText !== "Unknown") {
+            try {
+                const dateVal = new Date(dateEl.innerText);
+                if (!isNaN(dateVal.getTime())) {
+                    dateEl.innerText = dateVal.toLocaleString();
+                }
+            } catch (e) {
+                console.error("Failed to parse date", e);
+            }
+        }
+    });
+
+    async function checkForUpdates() {
+        const btn = document.getElementById("btn-check-updates");
+        const statusTitle = document.getElementById("status-title");
+        const statusDesc = document.getElementById("status-desc");
+        const statusContainer = document.getElementById("status-container");
+        const changelogBody = document.getElementById("changelog-body");
+        const errorBanner = document.getElementById("error-banner");
+        const errorMsg = document.getElementById("error-message");
+        const triggerBtn = document.getElementById("btn-trigger-update");
+
+        errorBanner.classList.add("hidden");
+        btn.disabled = true;
+        btn.innerText = "Checking...";
+
+        statusTitle.innerText = "Checking GitHub...";
+        statusDesc.innerText = "Fetching commit history from GitHub main branch...";
+
+        changelogBody.innerHTML = `
+            <tr>
+                <td colspan="4" class="px-6 py-8 text-center text-gray-400">
+                    <svg class="animate-spin h-5 w-5 mx-auto text-blue-500" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </td>
+            </tr>
+        `;
+
+        try {
+            const response = await fetch("/api/system/updates/check");
+            if (!response.ok) {
+                throw new Error(`Server returned HTTP ${response.status}`);
+            }
+            const data = await response.json();
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            // Update status container styles and content
+            if (data.up_to_date) {
+                statusTitle.innerText = "Your system is up-to-date";
+                statusDesc.innerText = `You are running the latest commit (${data.local_commit}).`;
+                
+                statusContainer.className = "flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-emerald-950/20 border border-emerald-900/60 rounded-lg text-emerald-300";
+                statusContainer.querySelector("div").className = "p-3 bg-emerald-900/30 rounded-full flex-shrink-0";
+                statusContainer.querySelector("svg").innerHTML = `
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                `;
+                triggerBtn.classList.add("hidden");
+            } else {
+                statusTitle.innerText = "Update Available";
+                statusDesc.innerText = `New changes are available. Latest remote commit is ${data.latest_commit}.`;
+                
+                statusContainer.className = "flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-blue-950/20 border border-blue-900/60 rounded-lg text-blue-300";
+                statusContainer.querySelector("div").className = "p-3 bg-blue-900/30 rounded-full flex-shrink-0";
+                statusContainer.querySelector("svg").innerHTML = `
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89H18v3.318M4 4h6v3M4 16v-3h6M14 20h3M14 16h6v4" />
+                `;
+                triggerBtn.classList.remove("hidden");
+            }
+
+            // Populating changelog table
+            if (data.pending_commits && data.pending_commits.length > 0) {
+                changelogBody.innerHTML = data.pending_commits.map(commit => {
+                    const commitDate = new Date(commit.date).toLocaleString();
+                    const tagBadge = commit.tag ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-900/50 text-blue-300 border border-blue-800 ml-2">${commit.tag}</span>` : '';
+                    return `
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-blue-400 flex items-center">
+                                <a href="https://github.com/RationalAnarchist/Scrollarr/commit/${commit.sha}" target="_blank" class="hover:underline">${commit.sha}</a>
+                                ${tagBadge}
+                            </td>
+                            <td class="px-6 py-4 text-sm text-gray-200">${commit.message}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${commit.author}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-400">${commitDate}</td>
+                        </tr>
+                    `;
+                }).join("");
+            } else {
+                changelogBody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="px-6 py-8 text-center text-emerald-400 bg-emerald-950/5">
+                            No pending changes. You are up to date!
+                        </td>
+                    </tr>
+                `;
+            }
+        } catch (err) {
+            console.error("Update check failed", err);
+            errorMsg.innerText = err.message || "Failed to contact local server or GitHub API.";
+            errorBanner.classList.remove("hidden");
+            
+            statusTitle.innerText = "Check Failed";
+            statusDesc.innerText = "Could not pull latest update metadata from GitHub.";
+            statusContainer.className = "flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-red-950/20 border border-red-900/60 rounded-lg text-red-300";
+            statusContainer.querySelector("div").className = "p-3 bg-red-900/30 rounded-full flex-shrink-0";
+            statusContainer.querySelector("svg").innerHTML = `
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            `;
+            triggerBtn.classList.add("hidden");
+            
+            changelogBody.innerHTML = `
+                <tr>
+                    <td colspan="4" class="px-6 py-8 text-center text-red-400">
+                        Failed to populate changelog due to update check failure.
+                    </td>
+                </tr>
+            `;
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Check for Updates";
+        }
+    }
+
+    async function triggerUpdate() {
+        const btn = document.getElementById("btn-trigger-update");
+        const progressContainer = document.getElementById("update-progress-container");
+        const logsContainer = document.getElementById("update-logs");
+        const timerEl = document.getElementById("update-timer");
+        const errorBanner = document.getElementById("error-banner");
+        const errorMsg = document.getElementById("error-message");
+
+        errorBanner.classList.add("hidden");
+        btn.disabled = true;
+        progressContainer.classList.remove("hidden");
+
+        logsContainer.innerHTML = `<p class="text-zinc-500">[System] Sending update trigger request to server...</p>`;
+        
+        let elapsed = 0;
+        const interval = setInterval(() => {
+            elapsed++;
+            timerEl.innerText = `${elapsed}s elapsed`;
+        }, 1000);
+
+        try {
+            const response = await fetch("/api/system/updates/trigger", { method: "POST" });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.detail || "Server error initiating update.");
+            }
+
+            logsContainer.innerHTML += `<p class="text-emerald-400">[Success] ${data.message}</p>`;
+            logsContainer.innerHTML += `<p class="text-blue-400">[System] App is restarting/redeploying. Reconnecting in 8 seconds...</p>`;
+            
+            clearInterval(interval);
+            timerEl.innerText = "Restarting...";
+
+            // Poll health endpoint or reload page after 8 seconds
+            setTimeout(() => {
+                window.location.reload();
+            }, 8000);
+        } catch (err) {
+            clearInterval(interval);
+            timerEl.innerText = "Failed";
+            console.error("Update failed", err);
+            errorMsg.innerText = err.message || "Failed to trigger update.";
+            errorBanner.classList.remove("hidden");
+            logsContainer.innerHTML += `<p class="text-red-500">[Error] Update trigger failed: ${err.message}</p>`;
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

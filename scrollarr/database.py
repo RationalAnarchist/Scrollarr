@@ -265,6 +265,15 @@ def init_db(engine=engine):
     # We now rely on Alembic to create tables and manage schema
     run_migrations()
 
+    # Create a database backup on startup
+    try:
+        from .backup_manager import BackupManager
+        backup_mgr = BackupManager()
+        print("Creating automatic database backup on startup...")
+        backup_mgr.create_backup()
+    except Exception as backup_e:
+        print(f"Failed to create automatic startup backup: {backup_e}")
+
 def sync_story(url: str, session: Optional[Session] = None):
     """
     Fetches the latest chapters for the story at the given URL and updates the database.

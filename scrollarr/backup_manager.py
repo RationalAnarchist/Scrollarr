@@ -29,7 +29,6 @@ class BackupManager:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_filename = f"library_backup_{timestamp}.db"
         backup_path = self.backup_dir / backup_filename
-        
         try:
             # Safe backup using sqlite3 api
             src = sqlite3.connect(db_path)
@@ -39,6 +38,16 @@ class BackupManager:
             dst.close()
             src.close()
             logger.info(f"Database backup created successfully: {backup_path}")
+
+            # Enforce retention policy: keep only the 5 most recent backups
+            try:
+                backups = self.list_backups()
+                if len(backups) > 5:
+                    for old_backup in backups[5:]:
+                        self.delete_backup(old_backup["filename"])
+            except Exception as prune_e:
+                logger.warning(f"Failed to prune old backups: {prune_e}")
+
             return str(backup_filename)
         except Exception as e:
             logger.error(f"Failed to create database backup: {e}")

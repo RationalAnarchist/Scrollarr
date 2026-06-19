@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  scrollarr:
+    image: ghcr.io/rationalanarchist/scrollarr:latest
+    container_name: scrollarr
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config
+      - ./library:/app/library
+      - ./saved_stories:/app/saved_stories
+      # Mount the Docker socket to enable the Web UI self-updater feature
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped

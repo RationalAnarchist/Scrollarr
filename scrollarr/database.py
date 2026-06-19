@@ -167,8 +167,101 @@ def run_migrations():
         print(f"Error running migrations: {e}")
         raise e
 
+def check_and_repair_db(db_path: str):
+    """Checks the database integrity and performs automatic self-healing if corrupted."""
+    import sqlite3
+    import shutil
+
+    if not os.path.exists(db_path):
+        return
+
+    print(f"Checking database integrity for {db_path}...")
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA integrity_check")
+        result = cursor.fetchall()
+        conn.close()
+
+        if result == [('ok',)]:
+            print("Database integrity check: OK")
+            return
+
+        print(f"CRITICAL: Database corruption detected in {db_path}! Result: {result}")
+        print("Attempting automatic self-healing database recovery...")
+
+        backup_path = db_path + ".bak"
+        recovered_path = db_path + ".recovered"
+
+        # 1. Back up the corrupted database (overwriting any previous backup)
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
+        shutil.copy2(db_path, backup_path)
+
+        # 2. Connect to the backup database to dump (safe from WAL locks)
+        conn = sqlite3.connect(backup_path)
+        print("Dumping schema and data to SQL script...")
+        sql_dump = []
+        for line in conn.iterdump():
+            if line.startswith("BEGIN TRANSACTION") or line.startswith("COMMIT"):
+                continue
+            sql_dump.append(line)
+        conn.close()
+
+        # 3. Create fresh recovered database
+        if os.path.exists(recovered_path):
+            os.remove(recovered_path)
+
+        new_conn = sqlite3.connect(recovered_path)
+        new_cursor = new_conn.cursor()
+
+        # Replay the SQL statements
+        new_cursor.execute("BEGIN TRANSACTION;")
+        for statement in sql_dump:
+            try:
+                new_cursor.execute(statement)
+            except sqlite3.Error as e:
+                # Skip duplicate keys or errors safely
+                if "UNIQUE constraint failed" not in str(e):
+                    print(f"Warning during self-healing: Skipped statement due to error: {e}")
+        new_conn.commit()
+
+        # 4. Verify integrity of the recovered database
+        new_cursor.execute("PRAGMA integrity_check")
+        recovered_result = new_cursor.fetchall()
+        new_conn.close()
+
+        if recovered_result == [('ok',)]:
+            print("Integrity check of rebuilt database PASSED!")
+            print("Applying self-healed database...")
+
+            # Remove old DB and journal files
+            if os.path.exists(db_path):
+                os.remove(db_path)
+            for ext in ["-wal", "-shm"]:
+                journal_file = db_path + ext
+                if os.path.exists(journal_file):
+                    os.remove(journal_file)
+
+            # Swap
+            os.rename(recovered_path, db_path)
+            print("Database self-healing completed successfully! Database is now healthy.")
+        else:
+            print(f"ERROR: Rebuilt database failed integrity check: {recovered_result}")
+            if os.path.exists(recovered_path):
+                os.remove(recovered_path)
+
+    except Exception as e:
+        print(f"Failed to perform self-healing database recovery: {e}")
+
 def init_db(engine=engine):
     """Creates the database tables and runs migrations."""
+    # Check and repair database if it's SQLite
+    if DB_URL.startswith("sqlite:///"):
+        db_path = DB_URL.split("sqlite:///")[1]
+        if db_path and db_path != ":memory:":
+            check_and_repair_db(db_path)
+            
     # We now rely on Alembic to create tables and manage schema
     run_migrations()
 

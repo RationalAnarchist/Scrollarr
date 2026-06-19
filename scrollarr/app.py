@@ -757,6 +757,13 @@ async def trigger_update():
             logger.error(f"Webhook self-update failed: {web_err}")
             raise HTTPException(status_code=500, detail=f"Webhook update failed: {str(web_err)}")
             
+    # 4. Development / Local Testing Dry-Run Mode
+    # If running in development (has .git directory or SCROLLARR_DEV_MODE is enabled), simulate a successful trigger.
+    cwd_git = os.path.exists(".git") or os.path.exists("../.git") or os.path.exists("../../.git")
+    if cwd_git or os.getenv("SCROLLARR_DEV_MODE", "false").lower() in ("true", "1"):
+        logger.info("Auto-updater: Development environment detected. Simulating dry-run update.")
+        return {"status": "success", "message": "Development environment detected. Simulated update pull and reload successfully (dry-run)."}
+
     raise HTTPException(
         status_code=400,
         detail="No updater method configured. Mount /var/run/docker.sock, run in Kubernetes, or configure an Update Webhook URL in settings."

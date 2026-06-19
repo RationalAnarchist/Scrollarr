@@ -33,6 +33,22 @@ from .auth import is_local_ip, verify_api_key, verify_password, get_password_has
 setup_logging(log_level=config_manager.get('log_level'), log_file='logs/scrollarr.log')
 logger = logging.getLogger(__name__)
 
+def get_app_version() -> str:
+    """Reads the application version from version.txt, falling back to version.json or a default."""
+    try:
+        txt_path = Path(__file__).parent / "version.txt"
+        if txt_path.exists():
+            return txt_path.read_text().strip()
+        
+        json_path = Path(__file__).parent / "version.json"
+        if json_path.exists():
+            import json
+            data = json.loads(json_path.read_text())
+            return f"{data.get('major', 0)}.{data.get('minor', 5)}.{data.get('patch', 1)}"
+    except Exception as e:
+         pass
+    return "0.5.1"
+
 START_TIME = time.time()
 
 app = FastAPI(title="Scrollarr")
@@ -533,6 +549,95 @@ async def backups_page(request: Request):
     """Render the backups page."""
     return templates.TemplateResponse(request=request, name="backups.html", context={"request": request})
 
+@app.get("/system/updates", response_class=HTMLResponse)
+async def updates_page(request: Request):
+    """Render the updates page."""
+    import subprocess
+    version = get_app_version()
+    commit_hash = "Unknown"
+    commit_date = "Unknown"
+    try:
+        # Run in working directory to ensure it finds the repository
+        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        commit_hash = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=cwd).decode("utf-8").strip()
+        commit_date = subprocess.check_output(["git", "show", "-s", "--format=%ci", "HEAD"], cwd=cwd).decode("utf-8").strip()
+    except Exception:
+        pass
+
+    return templates.TemplateResponse(request=request, name="updates.html", context={
+        "request": request,
+        "version": version,
+        "commit_hash": commit_hash,
+        "commit_date": commit_date
+    })
+
+@app.get("/api/system/updates/check")
+async def check_updates_api():
+    """Queries the remote main branch on GitHub to find outstanding commits."""
+    import subprocess
+    import httpx
+    
+    local_version = get_app_version()
+    local_commit = "Unknown"
+    try:
+        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=cwd).decode("utf-8").strip()
+    except Exception:
+        pass
+
+    url = "https://api.github.com/repos/RationalAnarchist/Scrollarr/commits?sha=main"
+    headers = {"User-Agent": "Scrollarr-App"}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Failed to fetch commits from GitHub")
+            commits_data = response.json()
+    except Exception as e:
+        logger.error(f"Error checking updates from GitHub: {e}")
+        return {
+            "error": f"Failed to check for updates: {str(e)}",
+            "up_to_date": True,
+            "pending_commits": []
+        }
+
+    pending_commits = []
+    up_to_date = True
+    latest_commit = "Unknown"
+    
+    if commits_data and isinstance(commits_data, list):
+        latest_commit = commits_data[0].get("sha", "")[:7]
+        
+        found_local = False
+        for c in commits_data:
+            sha = c.get("sha", "")
+            if local_commit and (sha == local_commit or sha.startswith(local_commit)):
+                found_local = True
+                break
+            
+            commit_info = c.get("commit", {})
+            author_info = commit_info.get("author", {})
+            pending_commits.append({
+                "sha": sha[:7],
+                "message": commit_info.get("message", "").split("\n")[0],
+                "author": author_info.get("name", "Unknown"),
+                "date": author_info.get("date", "")
+            })
+            
+        if not found_local:
+            up_to_date = (local_commit == commits_data[0].get("sha", ""))
+        else:
+            up_to_date = (len(pending_commits) == 0)
+
+    return {
+        "local_version": local_version,
+        "local_commit": local_commit[:7] if local_commit != "Unknown" else "Unknown",
+        "latest_commit": latest_commit[:7],
+        "up_to_date": up_to_date,
+        "pending_commits": pending_commits
+    }
+
 @app.get("/api/system/backups")
 async def get_system_backups():
     """Get list of database backups."""
@@ -757,23 +862,8 @@ async def get_calendar_events(response: Response, start: Optional[str] = None, e
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """Render the settings page."""
-    import subprocess
-    version = "1.1.2"
-    commit_hash = "Unknown"
-    commit_date = "Unknown"
-    try:
-        # Run in working directory to ensure it finds the repository
-        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        commit_hash = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=cwd).decode("utf-8").strip()
-        commit_date = subprocess.check_output(["git", "show", "-s", "--format=%ci", "HEAD"], cwd=cwd).decode("utf-8").strip()
-    except Exception:
-        pass
-
     return templates.TemplateResponse(request=request, name="settings.html", context={
-        "request": request,
-        "version": version,
-        "commit_hash": commit_hash,
-        "commit_date": commit_date
+        "request": request
     })
 
 @app.get("/settings/naming", response_class=HTMLResponse)

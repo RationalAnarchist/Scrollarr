@@ -325,6 +325,7 @@ class SettingsRequest(BaseModel):
     auth_password: Optional[str] = None
     local_auth_disabled: bool = False
     discord_bot_token: Optional[str] = None
+    update_webhook_url: Optional[str] = None
 
 class ProfileCreate(BaseModel):
     name: str
@@ -573,7 +574,7 @@ async def updates_page(request: Request):
 
 @app.get("/api/system/updates/check")
 async def check_updates_api():
-    """Queries the remote main branch on GitHub to find outstanding commits."""
+    """Queries the remote main branch on GitHub and maps tags to commit history."""
     import subprocess
     import httpx
     
@@ -585,15 +586,26 @@ async def check_updates_api():
     except Exception:
         pass
 
-    url = "https://api.github.com/repos/RationalAnarchist/Scrollarr/commits?sha=main"
+    commits_url = "https://api.github.com/repos/RationalAnarchist/Scrollarr/commits?sha=main"
+    tags_url = "https://api.github.com/repos/RationalAnarchist/Scrollarr/tags"
     headers = {"User-Agent": "Scrollarr-App"}
+    
+    commits_data = []
+    tags_data = []
     
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url, headers=headers)
-            if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail="Failed to fetch commits from GitHub")
-            commits_data = response.json()
+            # 1. Fetch commits
+            commits_res = await client.get(commits_url, headers=headers)
+            if commits_res.status_code == 200:
+                commits_data = commits_res.json()
+            else:
+                raise Exception(f"Failed to fetch commits: status code {commits_res.status_code}")
+                
+            # 2. Fetch tags
+            tags_res = await client.get(tags_url, headers=headers)
+            if tags_res.status_code == 200:
+                tags_data = tags_res.json()
     except Exception as e:
         logger.error(f"Error checking updates from GitHub: {e}")
         return {
@@ -601,6 +613,14 @@ async def check_updates_api():
             "up_to_date": True,
             "pending_commits": []
         }
+
+    # Map commit SHAs to Tag names
+    commit_to_tag = {}
+    if tags_data and isinstance(tags_data, list):
+        for tag in tags_data:
+            sha = tag.get("commit", {}).get("sha", "")
+            if sha:
+                commit_to_tag[sha] = tag.get("name", "")
 
     pending_commits = []
     up_to_date = True
@@ -618,11 +638,14 @@ async def check_updates_api():
             
             commit_info = c.get("commit", {})
             author_info = commit_info.get("author", {})
+            tag_name = commit_to_tag.get(sha, "")
+            
             pending_commits.append({
                 "sha": sha[:7],
                 "message": commit_info.get("message", "").split("\n")[0],
                 "author": author_info.get("name", "Unknown"),
-                "date": author_info.get("date", "")
+                "date": author_info.get("date", ""),
+                "tag": tag_name
             })
             
         if not found_local:
@@ -637,6 +660,107 @@ async def check_updates_api():
         "up_to_date": up_to_date,
         "pending_commits": pending_commits
     }
+
+@app.post("/api/system/updates/trigger")
+async def trigger_update():
+    """Triggers the self-update process using K8s API, Docker socket, or custom webhook."""
+    import os
+    import httpx
+    
+    # 1. Kubernetes Mode
+    k8s_token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    k8s_namespace_path = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+    if os.path.exists(k8s_token_path) and os.path.exists(k8s_namespace_path):
+        try:
+            logger.info("Auto-updater: Kubernetes deployment environment detected.")
+            with open(k8s_token_path, "r") as f:
+                token = f.read().strip()
+            with open(k8s_namespace_path, "r") as f:
+                namespace = f.read().strip()
+                
+            # Rollout restart the deployment/scrollarr
+            url = f"https://kubernetes.default.svc/apis/apps/v1/namespaces/{namespace}/deployments/scrollarr"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/strategic-merge-patch+json"
+            }
+            
+            import datetime
+            patch_data = {
+                "spec": {
+                    "template": {
+                        "metadata": {
+                            "annotations": {
+                                "kubectl.kubernetes.io/restartedAt": datetime.datetime.now().isoformat()
+                            }
+                        }
+                    }
+                }
+            }
+            # Disable SSL verification since we connect internally to default cluster service
+            async with httpx.AsyncClient(verify=False) as client:
+                response = await client.patch(url, headers=headers, json=patch_data)
+                if response.status_code == 200:
+                    logger.info("Kubernetes rollout restart patch applied successfully.")
+                    return {"status": "success", "message": "Kubernetes rollout restart triggered successfully."}
+                else:
+                    raise Exception(f"Kubernetes API returned {response.status_code}: {response.text}")
+        except Exception as k8s_err:
+            logger.error(f"Kubernetes self-update failed: {k8s_err}")
+            raise HTTPException(status_code=500, detail=f"Kubernetes update failed: {str(k8s_err)}")
+            
+    # 2. Docker Socket Mode
+    docker_socket_path = "/var/run/docker.sock"
+    if os.path.exists(docker_socket_path):
+        try:
+            logger.info("Auto-updater: Docker socket deployment environment detected.")
+            transport = httpx.AsyncHTTPTransport(uds=docker_socket_path)
+            async with httpx.AsyncClient(transport=transport) as client:
+                # Pull the latest image
+                pull_url = "http://localhost/images/create?fromImage=ghcr.io/rationalanarchist/scrollarr:latest"
+                pull_res = await client.post(pull_url)
+                if pull_res.status_code != 200:
+                    raise Exception(f"Failed to pull latest image from registry: {pull_res.text}")
+                    
+                # Recreate container / restart self
+                import socket
+                container_id = socket.gethostname()
+                restart_url = f"http://localhost/containers/{container_id}/restart"
+                
+                # Trigger async restart so container has time to send HTTP success response
+                import asyncio
+                async def delayed_restart():
+                    await asyncio.sleep(2)
+                    async with httpx.AsyncClient(transport=transport) as c:
+                        await c.post(restart_url)
+                asyncio.create_task(delayed_restart())
+                
+                logger.info("Docker image pulled and container restart scheduled.")
+                return {"status": "success", "message": "Latest Docker image pulled. Container restart scheduled."}
+        except Exception as docker_err:
+            logger.error(f"Docker self-update failed: {docker_err}")
+            raise HTTPException(status_code=500, detail=f"Docker update failed: {str(docker_err)}")
+            
+    # 3. Webhook Mode (Fallback)
+    webhook_url = config_manager.get("update_webhook_url")
+    if webhook_url:
+        try:
+            logger.info(f"Auto-updater: Custom webhook trigger detected: {webhook_url}")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(webhook_url, json={"trigger": "scrollarr_update", "version": "latest"})
+                if response.status_code in [200, 201, 202, 204]:
+                    logger.info("Custom update webhook triggered successfully.")
+                    return {"status": "success", "message": "Update webhook triggered successfully."}
+                else:
+                    raise Exception(f"Webhook returned status code {response.status_code}")
+        except Exception as web_err:
+            logger.error(f"Webhook self-update failed: {web_err}")
+            raise HTTPException(status_code=500, detail=f"Webhook update failed: {str(web_err)}")
+            
+    raise HTTPException(
+        status_code=400,
+        detail="No updater method configured. Mount /var/run/docker.sock, run in Kubernetes, or configure an Update Webhook URL in settings."
+    )
 
 @app.get("/api/system/backups")
 async def get_system_backups():
@@ -1026,6 +1150,7 @@ async def update_settings(settings: SettingsRequest):
             "full_story_name_format": settings.full_story_name_format,
             "auth_method": settings.auth_method,
             "local_auth_disabled": settings.local_auth_disabled,
+            "update_webhook_url": settings.update_webhook_url,
         }
 
         if settings.discord_bot_token is not None and settings.discord_bot_token != "********":

@@ -31,6 +31,14 @@
                 </select>
             </div>
 
+            <div class="mb-6">
+                <label class="block text-gray-300 text-sm font-bold mb-2" for="update-webhook-url">
+                    Update Webhook URL
+                </label>
+                <input type="url" id="update-webhook-url" name="update_webhook_url" class="w-full p-3 rounded bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-blue-500 transition-colors" placeholder="e.g. https://portainer.local/api/webhooks/...">
+                <p class="text-xs text-gray-500 mt-2">Optional. Triggered as a fallback updater webhook when direct Kubernetes API or Docker Sockets are not available.</p>
+            </div>
+
             <h2 class="text-xl font-bold mb-4 text-gray-200 mt-8">Security</h2>
             <div class="mb-6">
                 <label class="block text-gray-300 text-sm font-bold mb-2" for="api-key">API Key</label>
@@ -155,6 +163,7 @@
                 fullSettings = await response.json();
 
                 document.getElementById('download-path').value = fullSettings.download_path || '';
+                document.getElementById('update-webhook-url').value = fullSettings.update_webhook_url || '';
 
                 document.getElementById('min-delay').value = fullSettings.min_delay || 2.0;
                 document.getElementById('max-delay').value = fullSettings.max_delay || 5.0;
@@ -192,6 +201,7 @@
 
             // Update local fields
             fullSettings.download_path = document.getElementById('download-path').value;
+            fullSettings.update_webhook_url = document.getElementById('update-webhook-url').value;
             fullSettings.min_delay = parseFloat(document.getElementById('min-delay').value);
             fullSettings.max_delay = parseFloat(document.getElementById('max-delay').value);
             fullSettings.user_agent = document.getElementById('user-agent').value;

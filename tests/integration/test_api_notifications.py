@@ -46,9 +46,17 @@ class TestApiNotifications(unittest.TestCase):
         config_manager.config = self.original_config
 
         self.db.close()
+        # Dispose of both engines to release connection pool locks on sqlite file
+        from scrollarr.database import engine as main_engine
+        engine.dispose()
+        main_engine.dispose()
+
         Base.metadata.drop_all(bind=engine)
         if os.path.exists("./test_api.db"):
-            os.remove("./test_api.db")
+            try:
+                os.remove("./test_api.db")
+            except Exception as e:
+                print(f"Warning: could not delete test_api.db: {e}")
 
     def test_toggle_notifications(self):
         # Create a story

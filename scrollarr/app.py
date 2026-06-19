@@ -113,6 +113,43 @@ async def auth_middleware(request: Request, call_next):
     else:
         return RedirectResponse(url="/login", status_code=302)
 
+# Startup status tracking
+startup_finished = os.getenv("DEFER_DB_INIT") != "true"
+startup_status = "Ready" if startup_finished else "Initializing..."
+startup_error = None
+
+@app.middleware("http")
+async def startup_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/static") or path == "/favicon.ico" or path == "/api/startup-status" or path == "/startup":
+        return await call_next(request)
+
+    if not startup_finished:
+        if path.startswith("/api"):
+            return JSONResponse(
+                status_code=503,
+                content={"detail": f"Scrollarr is starting up: {startup_status}", "error": startup_error}
+            )
+        return RedirectResponse(url="/startup", status_code=302)
+
+    return await call_next(request)
+
+@app.get("/api/startup-status")
+async def get_startup_status():
+    return {
+        "finished": startup_finished,
+        "status": startup_status,
+        "error": startup_error
+    }
+
+@app.get("/startup", response_class=HTMLResponse)
+async def startup_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="startup.html",
+        context={"request": request, "status": startup_status, "error": startup_error}
+    )
+
 # Auth Routes
 
 @app.get("/login", response_class=HTMLResponse)
@@ -348,10 +385,7 @@ job_manager = JobManager()
 
 @app.on_event("startup")
 async def startup_event():
-    """Start the background job manager and pre-install Playwright chromium."""
-    global job_manager
-    job_manager.start()
-
+    """Pre-install Playwright chromium and start async database initialization."""
     import threading
     def ensure_playwright():
         try:
@@ -363,6 +397,64 @@ async def startup_event():
             logger.warning(f"Failed to ensure Playwright chromium on startup: {startup_err}")
 
     threading.Thread(target=ensure_playwright, daemon=True).start()
+
+    # Start database initialization thread
+    def run_startup_initialization():
+        global startup_status, startup_finished, startup_error, story_manager, job_manager
+        try:
+            # Unset DEFER_DB_INIT so database initialization functions can run
+            os.environ.pop("DEFER_DB_INIT", None)
+
+            from .database import check_and_repair_db, run_migrations, DB_URL
+
+            db_path = None
+            if DB_URL.startswith("sqlite:///"):
+                db_path = DB_URL.split("sqlite:///")[1]
+                if db_path == ":memory:":
+                    db_path = None
+
+            # 1. Run database integrity check & repair
+            if db_path:
+                logger.info("Startup sequence: Checking database integrity...")
+                startup_status = "Verifying database integrity..."
+                check_and_repair_db(db_path)
+
+            # 2. Create automatic database backup
+            logger.info("Startup sequence: Creating automatic database backup...")
+            startup_status = "Creating automatic database backup..."
+            try:
+                from .backup_manager import BackupManager
+                backup_mgr = BackupManager()
+                backup_mgr.create_backup(is_auto=True)
+            except Exception as backup_e:
+                logger.warning(f"Failed to create startup backup: {backup_e}")
+
+            # 3. Run database migrations
+            logger.info("Startup sequence: Applying database schema migrations...")
+            startup_status = "Applying database schema migrations..."
+            run_migrations()
+
+            # 4. Reload providers
+            logger.info("Startup sequence: Loading content providers...")
+            startup_status = "Loading content providers..."
+            if story_manager:
+                story_manager.reload_providers()
+
+            # 5. Start background task scheduler
+            logger.info("Startup sequence: Starting background task scheduler...")
+            startup_status = "Starting background job scheduler..."
+            if job_manager:
+                job_manager.start()
+
+            logger.info("Startup sequence complete! Scrollarr is ready.")
+            startup_status = "Ready"
+            startup_finished = True
+        except Exception as e:
+            logger.error(f"Startup sequence failed: {e}", exc_info=True)
+            startup_error = str(e)
+            startup_status = "Failed"
+
+    threading.Thread(target=run_startup_initialization, daemon=True).start()
 
 @app.on_event("shutdown")
 async def shutdown_event():

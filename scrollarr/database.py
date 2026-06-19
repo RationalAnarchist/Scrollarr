@@ -256,6 +256,10 @@ def check_and_repair_db(db_path: str):
 
 def init_db(engine=engine):
     """Creates the database tables and runs migrations."""
+    if os.getenv("DEFER_DB_INIT") == "true":
+        print("Database initialization deferred by DEFER_DB_INIT environment variable.")
+        return
+
     # Check and repair database if it's SQLite
     if DB_URL.startswith("sqlite:///"):
         db_path = DB_URL.split("sqlite:///")[1]

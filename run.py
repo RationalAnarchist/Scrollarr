@@ -51,6 +51,9 @@ if __name__ == "__main__":
 
     reload_enabled = os.getenv("DEVELOPMENT", "false").lower() == "true"
 
+    # Defer database initialization on startup so FastAPI starts listening immediately
+    os.environ["DEFER_DB_INIT"] = "true"
+
     uvicorn.run(
         "scrollarr.app:app",
         host="0.0.0.0",

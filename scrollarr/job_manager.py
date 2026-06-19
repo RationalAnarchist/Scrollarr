@@ -223,7 +223,7 @@ class JobManager:
         from .app import backup_manager
         if backup_manager:
             try:
-                backup_manager.create_backup()
+                backup_manager.create_backup(is_auto=True)
             except Exception as e:
                 logger.error(f"Failed to create scheduled database backup: {e}")
 

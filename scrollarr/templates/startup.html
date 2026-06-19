@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starting Scrollarr...</title>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        background: '#1a1a1a',
+                        text: '#e5e5e5'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border-left-color: #3b82f6; /* blue-500 */
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen bg-background text-text font-sans p-6">
+    <div class="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-xl p-8 shadow-2xl text-center space-y-6">
+        <h1 class="text-3xl font-extrabold text-white tracking-tight">Scrollarr</h1>
+        
+        <div id="loading-container" class="flex flex-col items-center space-y-4 py-4">
+            <div class="spinner"></div>
+            <p id="status-text" class="text-zinc-400 font-medium text-lg">Initializing Scrollarr...</p>
+        </div>
+
+        <div id="error-container" class="hidden text-left space-y-4">
+            <div class="flex items-center space-x-2 text-red-500 font-semibold">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+                <span>Startup Failed</span>
+            </div>
+            <p class="text-zinc-400 text-sm">Scrollarr encountered a critical error during database check or initialization:</p>
+            <div class="bg-red-950/40 border border-red-900/60 rounded-lg p-4 font-mono text-xs text-red-300 overflow-x-auto whitespace-pre-wrap max-h-40" id="error-details"></div>
+            <p class="text-zinc-500 text-xs">Please check the server logs for more details. Restart the application container once the issue is resolved.</p>
+        </div>
+
+        <div class="pt-2 border-t border-zinc-800 text-xs text-zinc-500">
+            System is preparing database, migrations, and backups.
+        </div>
+    </div>
+
+    <script>
+        async function checkStatus() {
+            try {
+                const response = await fetch('/api/startup-status');
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                const data = await response.json();
+                
+                if (data.finished) {
+                    document.getElementById('status-text').innerText = "Ready! Redirecting...";
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 500);
+                    return;
+                }
+                
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                
+                document.getElementById('status-text').innerText = data.status;
+                setTimeout(checkStatus, 1000);
+            } catch (err) {
+                console.error("Failed to fetch startup status", err);
+                setTimeout(checkStatus, 2000);
+            }
+        }
+
+        function showError(errorMsg) {
+            document.getElementById('loading-container').classList.add('hidden');
+            document.getElementById('error-details').innerText = errorMsg;
+            document.getElementById('error-container').classList.remove('hidden');
+        }
+
+        // Start polling
+        checkStatus();
+    </script>
+</body>
+</html>

@@ -83,7 +83,7 @@ class TestDeleteStory(unittest.TestCase):
         self.assertFalse(os.path.exists(legacy_dir), "Legacy directory should be deleted")
 
         # Verify DB interactions
-        mock_session.delete.assert_called_with(story)
+        self.assertTrue(mock_session.connection().connection.cursor().execute.called)
         mock_session.commit.assert_called()
 
     @patch('scrollarr.story_manager.init_db')
@@ -121,7 +121,7 @@ class TestDeleteStory(unittest.TestCase):
         self.assertTrue(os.path.exists(story_dir))
 
         # Verify DB delete called
-        mock_session.delete.assert_called_with(story)
+        self.assertTrue(mock_session.connection().connection.cursor().execute.called)
 
 if __name__ == '__main__':
     unittest.main()

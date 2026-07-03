@@ -960,7 +960,7 @@ async def get_system_logs():
 from fastapi.responses import FileResponse
 
 @app.get("/api/system/logs/download/{filename}")
-async def download_log_file(filename: str):
+async def download_log_file(filename: str, background_tasks: BackgroundTasks):
     """Download a specific log file."""
     # Sanitize filename
     if ".." in filename or "/" in filename or "\\" in filename:
@@ -970,7 +970,19 @@ async def download_log_file(filename: str):
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found")
         
-    return FileResponse(path=filepath, filename=filename, media_type='text/plain')
+    import tempfile
+    import shutil
+    
+    # Copy to a temporary file to avoid "Response content longer than Content-Length"
+    # errors if the log file is being actively written to during download.
+    temp_dir = tempfile.gettempdir()
+    temp_filepath = os.path.join(temp_dir, f"scrollarr_download_{filename}")
+    shutil.copy2(filepath, temp_filepath)
+    
+    # Register background task to remove the temp file after response is sent
+    background_tasks.add_task(os.remove, temp_filepath)
+    
+    return FileResponse(path=temp_filepath, filename=filename, media_type='text/plain')
 
 @app.get("/api/calendar")
 async def get_calendar_events(response: Response, start: Optional[str] = None, end: Optional[str] = None):

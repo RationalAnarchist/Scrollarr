@@ -227,11 +227,15 @@ class StoryManager:
                 story.publication_status = metadata.get('publication_status', story.publication_status)
 
             # Handle chapters
-            existing_urls = {c.source_url: c for c in story.chapters}
+            def safe_normalize(url):
+                norm = provider.normalize_chapter_url(url)
+                return norm if isinstance(norm, str) else url
+
+            existing_urls = {safe_normalize(c.source_url): c for c in story.chapters}
             new_chapters_count = 0
 
             for i, chapter_data in enumerate(chapters_data):
-                c_url = chapter_data['url']
+                c_url = safe_normalize(chapter_data['url'])
                 published_date = chapter_data.get('published_date')
                 volume_title = chapter_data.get('volume_title')
                 volume_number = chapter_data.get('volume_number', 1)
@@ -533,12 +537,14 @@ class StoryManager:
                     last_chapter = self._get_last_chapter_info(story)
 
                     # Get existing chapters from DB
-                    existing_chapter_urls = {c.source_url for c in story.chapters}
+                    def safe_normalize(url):
+                        norm = provider.normalize_chapter_url(url)
+                        return norm if isinstance(norm, str) else url
+
+                    existing_chapter_urls = {safe_normalize(c.source_url) for c in story.chapters}
 
                     # Fetch current chapters from source
                     remote_chapters = provider.get_chapter_list(story.source_url, last_chapter=last_chapter, existing_urls=existing_chapter_urls)
-
-
 
                     new_chapters_count = 0
                     for i, chap_data in enumerate(remote_chapters):
@@ -550,11 +556,12 @@ class StoryManager:
                         tags_list = chap_data.get('tags', [])
                         tags_str = ','.join(tags_list) if tags_list else None
 
-                        if chap_data['url'] not in existing_chapter_urls:
+                        normalized_url = safe_normalize(chap_data['url'])
+                        if normalized_url not in existing_chapter_urls:
                             has_access = chap_data.get('has_access', True)
                             new_chapter = Chapter(
                                 title=chap_data['title'],
-                                source_url=chap_data['url'],
+                                source_url=normalized_url,
                                 story_id=story.id,
                                 index=idx,
                                 status='pending' if has_access else 'locked',

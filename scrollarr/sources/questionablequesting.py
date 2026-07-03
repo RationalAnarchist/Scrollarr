@@ -246,7 +246,7 @@ class QuestionableQuestingAllPostsSource(QuestionableQuestingSource):
 
                 chapters.append({
                     'title': chapter_title,
-                    'url': chapter_url,
+                    'url': self.normalize_chapter_url(chapter_url),
                     'published_date': published_date,
                     'volume_title': current_vol_title,
                     'volume_number': current_vol_number,

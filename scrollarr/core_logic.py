@@ -37,6 +37,13 @@ class BaseSource(ABC):
         """
         pass
 
+    def normalize_chapter_url(self, url: str) -> str:
+        """
+        Normalizes chapter URLs for deduplication.
+        Defaults to returning the original URL.
+        """
+        return url
+
     def remove_hidden_elements(self, soup: BeautifulSoup, root_element):
         """
         Removes elements that are hidden via CSS classes (display: none) or inline styles.

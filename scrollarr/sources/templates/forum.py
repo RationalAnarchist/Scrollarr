@@ -91,6 +91,18 @@ class XenForoSource(BaseSource):
             'publication_status': status
         }
 
+    def normalize_chapter_url(self, url: str) -> str:
+        """
+        Normalizes XenForo chapter URLs to standard posts/ID/ permalinks.
+        This prevents duplicate detection failures due to shifting page numbers.
+        """
+        post_id_match = re.search(r'post-(\d+)', url)
+        if not post_id_match:
+            post_id_match = re.search(r'posts/(\d+)', url)
+        if post_id_match:
+            return urljoin(self.BASE_URL, f"posts/{post_id_match.group(1)}/")
+        return url
+
     def get_chapter_list(self, url: str, **kwargs) -> List[Dict]:
         url = self._normalize_url(url)
         # Construct threadmarks URL
@@ -152,7 +164,7 @@ class XenForoSource(BaseSource):
 
                     chapters.append({
                         'title': title,
-                        'url': chapter_url,
+                        'url': self.normalize_chapter_url(chapter_url),
                         'published_date': published_date,
                         'index': global_index
                     })
